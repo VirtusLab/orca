@@ -44,7 +44,7 @@ class MessageGrammarTest extends munit.FunSuite:
           )
         case "messageend" => Step.continue((), TurnEvent.AssistantMessageEnd)
         case "error"      => Step.continue((), TurnEvent.Error("boom"))
-        case "succeed" =>
+        case "succeed"    =>
           Step.Settle(
             (),
             Nil,

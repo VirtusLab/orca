@@ -111,7 +111,7 @@ private[shell] object ModelCatalog:
       ).flatMap:
         case ModelPick.Curated(id) => UiOutcome.Selected(Some(id))
         case ModelPick.Default     => UiOutcome.Selected(None)
-        case ModelPick.Manual =>
+        case ModelPick.Manual      =>
           val hint = clearAffordance(current)
           freeText(ui, s"$label$hint", current)
 

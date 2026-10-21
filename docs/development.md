@@ -20,6 +20,7 @@ The repository is organised into these modules:
 
 ```
 orca/
+├── core/       # effect capabilities and their implementations, facades for safe-mode code, JsonData
 ├── tools/      # tool traits + os-lib-backed impls (git/gh/fs), LLM SPI, session durability, events
 ├── flow/       # stage/display/fail, FlowContext/FlowControl; orca.{plan,review,pr,progress}
 ├── claude/ codex/ gemini/ opencode/ pi/   # one module per coding-agent backend
@@ -32,7 +33,8 @@ orca/
 The modules depend on each other as follows:
 
 ```
-tools   (standalone)
+core    (standalone)
+tools                               → core
   ├── flow                          → tools
   ├── claude / codex / gemini /
   │     opencode / pi               → tools

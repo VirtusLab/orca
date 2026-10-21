@@ -18,7 +18,7 @@ import orca.review.OpenFindings
 import orca.tools.{GitHubAvailability, NoDefaultBase, PrHandle}
 import orca.util.TextUtil
 
-import scala.util.control.NonFatal
+import orca.safe.prelude.NonFatal
 
 /** [[openPrFromBranch]] where a PR can be opened, one reported line where it
   * can't — for a flow that should finish its work either way. Returns the
@@ -123,7 +123,7 @@ private def probe(using
 ): Either[String, GitHubAvailability.Available] =
   gh.availability() match
     case available: GitHubAvailability.Available => Right(available)
-    case GitHubAvailability.Unavailable(why) =>
+    case GitHubAvailability.Unavailable(why)     =>
       Left(
         s"${why.explanation}, no PR opened — push the branch and open the " +
           "PR yourself"

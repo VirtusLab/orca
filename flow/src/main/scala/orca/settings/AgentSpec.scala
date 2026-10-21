@@ -31,11 +31,11 @@ private[orca] object AgentSpec:
   def parse(value: String): Either[String, AgentSpec] =
     val (harness, model) = value.indexOf(':') match
       case -1 => (value.trim, None)
-      case i =>
+      case i  =>
         (value.take(i).trim, Some(value.drop(i + 1).trim).filter(_.nonEmpty))
     harnessNames.get(harness) match
       case Some(tag) => Right(AgentSpec(tag, model))
-      case None =>
+      case None      =>
         Left(
           s"unknown harness `$harness` — valid: " +
             harnessNames.keys.toList.sorted.mkString(", ")

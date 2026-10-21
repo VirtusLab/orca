@@ -1,6 +1,6 @@
 package orca.backend.opencode
 
-import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
+import orca.json.JsonCodec
 import orca.json.RawJson
 
 /** Wire DTOs for the OpenCode HTTP server (ADR 0014).
@@ -18,18 +18,15 @@ private[opencode] object OpencodeApi:
   // --- Request bodies (written) ---
 
   /** `model` on a message / session-create body. */
-  case class ModelRef(providerID: String, modelID: String)
-      derives ConfiguredJsonValueCodec
+  case class ModelRef(providerID: String, modelID: String) derives JsonCodec
 
   /** A `text` message part — the only part kind orca sends. */
-  case class MessagePart(`type`: String, text: String)
-      derives ConfiguredJsonValueCodec
+  case class MessagePart(`type`: String, text: String) derives JsonCodec
 
   /** `format` for structured output; `schema` is the caller's JSON Schema held
     * verbatim.
     */
-  case class OutputFormat(`type`: String, schema: RawJson)
-      derives ConfiguredJsonValueCodec
+  case class OutputFormat(`type`: String, schema: RawJson) derives JsonCodec
 
   /** Body of `POST /session/{id}/prompt_async` (and `…/message`). No field
     * defaults — a write shape is exact (see the file header); `tools` in
@@ -43,22 +40,20 @@ private[opencode] object OpencodeApi:
       agent: Option[String],
       tools: Option[Map[String, Boolean]],
       format: Option[OutputFormat]
-  ) derives ConfiguredJsonValueCodec
+  ) derives JsonCodec
 
   /** Body of `POST /session`. */
-  case class SessionCreateBody(title: Option[String] = None)
-      derives ConfiguredJsonValueCodec
+  case class SessionCreateBody(title: Option[String] = None) derives JsonCodec
 
   /** Body of `POST /question/{id}/reply` — one answer (selected labels) per
     * question, in order.
     */
-  case class QuestionReplyBody(answers: List[List[String]])
-      derives ConfiguredJsonValueCodec
+  case class QuestionReplyBody(answers: List[List[String]]) derives JsonCodec
 
   /** Body of `POST /permission/{id}/reply`; `reply` is one of
     * [[PermissionReply]].
     */
-  case class PermissionReplyBody(reply: String) derives ConfiguredJsonValueCodec
+  case class PermissionReplyBody(reply: String) derives JsonCodec
 
   /** The verdicts `POST /permission/{id}/reply` accepts. */
   object PermissionReply:
@@ -69,19 +64,18 @@ private[opencode] object OpencodeApi:
   // --- Response bodies (read) ---
 
   /** `POST /session` response. */
-  case class SessionCreated(id: String) derives ConfiguredJsonValueCodec
+  case class SessionCreated(id: String) derives JsonCodec
 
   // --- Assistant message metadata (read from `message.updated`) ---
 
-  case class Cache(read: Long = 0L, write: Long = 0L)
-      derives ConfiguredJsonValueCodec
+  case class Cache(read: Long = 0L, write: Long = 0L) derives JsonCodec
 
   case class Tokens(
       input: Long = 0L,
       output: Long = 0L,
       reasoning: Long = 0L,
       cache: Cache = Cache()
-  ) derives ConfiguredJsonValueCodec
+  ) derives JsonCodec
 
   /** The assistant `info` carried by `message.updated`. `structured` is present
     * only in structured mode; `error` is present only on a failed turn.
@@ -95,28 +89,28 @@ private[opencode] object OpencodeApi:
       modelID: Option[String] = None,
       finish: Option[String] = None,
       error: Option[RawJson] = None
-  ) derives ConfiguredJsonValueCodec
+  ) derives JsonCodec
 
   // --- ask_user / permission request payloads (read from SSE `properties`) ---
 
   case class QuestionOption(label: String, description: String = "")
-      derives ConfiguredJsonValueCodec
+      derives JsonCodec
 
   case class QuestionInfo(
       question: String,
       header: Option[String] = None,
       options: List[QuestionOption] = Nil
-  ) derives ConfiguredJsonValueCodec
+  ) derives JsonCodec
 
   case class QuestionRequest(
       id: String,
       sessionID: String,
       questions: List[QuestionInfo] = Nil
-  ) derives ConfiguredJsonValueCodec
+  ) derives JsonCodec
 
   case class PermissionRequest(
       id: String,
       sessionID: String,
       permission: String,
       patterns: List[String] = Nil
-  ) derives ConfiguredJsonValueCodec
+  ) derives JsonCodec

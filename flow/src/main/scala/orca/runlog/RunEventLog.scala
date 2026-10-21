@@ -1,15 +1,17 @@
 package orca.runlog
 
 import orca.{AttemptId, OrcaDir, RunKey, StagePath}
+import orca.effect.FileSystem
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.gitref.BranchName
 import orca.sessions.{SessionRecord, SessionStore}
-import org.slf4j.LoggerFactory
+import orca.safe.{Logger, Ref, concurrency}
 import ox.Ox
-import ox.channels.{Actor, ActorRef, BufferCapacity}
+import ox.Fork
+import ox.channels.{ActorRef, BufferCapacity, Channel}
 
 import java.time.Instant
-import scala.util.control.NonFatal
+import orca.safe.prelude.NonFatal
 
 /** The attempt's writer of its run's event log,
   * `.orca/cache/runs/<key>/events.jsonl` (ADR 0025), and the run's
@@ -17,7 +19,7 @@ import scala.util.control.NonFatal
   *
   * Every call waits until the in-memory projection is updated; appending to the
   * file happens in the background, in call order. No call throws: a failed
-  * append is logged and dropped.
+  * append is logged and dropped, and so is an event recorded after [[finish]].
   */
 private[orca] trait RunEventLog extends OrcaListener, SessionStore:
   /** Records the run's success on `branch`, with the published PR/MR reference;
@@ -34,28 +36,34 @@ private[orca] object RunEventLog:
 
   /** Prunes the run cache ([[RunPruning]]), loads the session records from the
     * run's event log and appends the attempt's [[RunEvent.AttemptStarted]]. The
-    * actors live as long as the enclosing scope, which must span every call up
-    * to [[RunEventLog.finish]].
+    * projection's actor and the file's writer fork live in the enclosing scope,
+    * which must span every call up to [[RunEventLog.finish]].
     *
     * `flowName` is the launched script's filename; `tracePath` the attempt's
     * trace log, if it has one.
     */
   def start(
+      fs: FileSystem,
       workDir: os.Path,
       runKey: RunKey,
       attemptId: AttemptId,
       orcaVersion: String,
       flowName: Option[String],
       tracePath: Option[os.Path],
-      clock: () => Instant
+      clock: () -> Instant
   )(using Ox, BufferCapacity): RunEventLog =
-    val eventLog = OrcaDir.ensureEventLog(workDir, runKey)
-    prune(workDir, runKey)
-    val loaded = SessionProjection.records(RunEventReader.read(eventLog))
-    endTornLine(eventLog)
-    val appender = Actor.create(EventAppender(eventLog))
-    val owner = Actor.create(
-      ProjectionOwner(Projection(loaded, Nil), attemptId, clock, appender)
+    val eventLog = OrcaDir(fs).ensureEventLog(workDir, runKey)
+    prune(fs, workDir, runKey)
+    val loaded = SessionProjection.records(RunEventReader(fs).read(eventLog))
+    endTornLine(fs, eventLog)
+    val queue = concurrency.bufferedDefaultChannel[RunEvent]
+    val writer = concurrency.fork(
+      concurrency
+        .receiveUntilClosed(queue)
+        .foreach(appendEvent(fs, eventLog, _))
+    )
+    val owner = concurrency.actor(
+      ProjectionOwner(Projection(loaded, Nil), attemptId, clock, queue)
     )
     owner.ask(
       _.started(
@@ -71,31 +79,32 @@ private[orca] object RunEventLog:
         )
       )
     )
-    ActorRunEventLog(owner, appender)
+    ActorRunEventLog(owner, queue, writer)
 
   // A crash mid-append leaves a last line without its newline; the next
   // append would join it, and neither line would decode.
-  private def endTornLine(eventLog: os.Path): Unit =
+  private def endTornLine(fs: FileSystem, eventLog: os.Path): Unit =
     try
-      if os.isFile(eventLog) then
-        val size = os.size(eventLog)
-        if size > 0 && os.read.bytes(eventLog, size - 1, 1).head != '\n' then
-          os.write.append(eventLog, "\n")
+      if fs.isFile(eventLog) then
+        if fs.readSuffix(eventLog, 1).headOption.exists(_ != '\n') then
+          fs.append(eventLog, "\n")
     catch
       case NonFatal(e) =>
         log.warn(s"ending the torn last line of $eventLog failed", e)
 
-  private val log = LoggerFactory.getLogger("orca.flow")
+  private[runlog] val log = Logger("orca.flow")
 
-  private def prune(workDir: os.Path, runKey: RunKey): Unit =
+  private def prune(fs: FileSystem, workDir: os.Path, runKey: RunKey): Unit =
     val cacheRuns = OrcaDir.cacheRunsPath(workDir)
-    RunPruning.removeLegacy(OrcaDir.cachePath(workDir))
-    RunPruning.pruneRuns(cacheRuns, runKey)
-    RunPruning.pruneTraces(cacheRuns)
+    val pruning = RunPruning(fs)
+    pruning.removeLegacy(OrcaDir.cachePath(workDir))
+    pruning.pruneRuns(cacheRuns, runKey)
+    pruning.pruneTraces(cacheRuns)
 
 private class ActorRunEventLog(
     owner: ActorRef[ProjectionOwner],
-    appender: ActorRef[EventAppender]
+    queue: Channel[RunEvent],
+    writer: Fork[Unit]
 ) extends RunEventLog:
   def onEvent(event: OrcaEvent): Unit = owner.ask(_.observed(event))
   def records(): List[SessionRecord] = owner.ask(_.records)
@@ -106,9 +115,10 @@ private class ActorRunEventLog(
 
   def finish(outcome: AttemptOutcome): Unit =
     owner.ask(_.finished(outcome))
-    // The appender handles its mailbox in order, so this returns after every
+    // The writer drains the queue in order, so this returns after every
     // queued append.
-    appender.ask(_ => ())
+    queue.done()
+    writer.join()
 
 /** What the attempt knows of its run: the session records, and the open stages
   * innermost first. Each transition returns the next projection with the events
@@ -235,38 +245,39 @@ private case class Projection(
       conversationKey = t.spend.conversationKey
     )
 
-/** Owns the [[Projection]]; ADR 0025 records why it is a `var` in an actor.
-  * Every method runs on the actor's thread, never throws, and hands the events
-  * it records to `appender`.
+/** Owns the [[Projection]]. Every method runs on the actor's thread, never
+  * throws, and queues the events it records for the writer fork.
   */
 private class ProjectionOwner(
     initial: Projection,
     attempt: AttemptId,
-    clock: () => Instant,
-    appender: ActorRef[EventAppender]
+    clock: () -> Instant,
+    queue: Channel[RunEvent]
 ):
-  private val log = LoggerFactory.getLogger("orca.flow")
+  import RunEventLog.log
 
-  private var state = initial
+  // The actor serialises every read and replacement, so plain get/set
+  // suffice: a `var` would do, but safe mode rejects `var` fields.
+  private val state: Ref[Projection] = Ref(initial)
 
-  def records: List[SessionRecord] = state.records
+  def records: List[SessionRecord] = state.get.records
 
   def started(event: RunEvent.AttemptStarted): Unit =
     guarded("recording the attempt's start"):
-      advance(state.recording(List(event)))
+      advance(state.get.recording(List(event)))
 
   def observed(event: OrcaEvent): Unit =
     guarded(s"recording ${event.getClass.getSimpleName}"):
-      advance(state.observe(event, clock(), attempt))
+      advance(state.get.observe(event, clock(), attempt))
 
   def upserted(record: SessionRecord): Unit =
     guarded("recording a session"):
-      advance(state.upsert(record, clock(), attempt))
+      advance(state.get.upsert(record, clock(), attempt))
 
   def succeeded(branch: BranchName, published: Option[String]): Unit =
     guarded("recording the run's success"):
       advance(
-        state.recording(
+        state.get.recording(
           List(RunEvent.RunSucceeded(clock(), attempt, branch, published))
         )
       )
@@ -274,7 +285,7 @@ private class ProjectionOwner(
   def finished(outcome: AttemptOutcome): Unit =
     guarded("recording the attempt's end"):
       advance(
-        state.recording(
+        state.get.recording(
           List(RunEvent.AttemptFinished(clock(), attempt, outcome))
         )
       )
@@ -282,8 +293,8 @@ private class ProjectionOwner(
   /** Moves to the next projection, then queues its events for the file. */
   private def advance(transition: (Projection, List[RunEvent])): Unit =
     val (next, events) = transition
-    state = next
-    events.foreach(e => appender.tell(_.append(e)))
+    state.set(next)
+    events.foreach(queue.send)
 
   // A throw here would quarantine the listener (from `observed`) or reach the
   // flow's teardown (from the rest).
@@ -291,15 +302,13 @@ private class ProjectionOwner(
     try op
     catch case NonFatal(e) => log.warn(s"$what failed (best-effort)", e)
 
-/** Appends events to the event log at `path`. Runs on its own actor, so the
+/** Appends `event` to the event log at `path`. Runs on the writer fork, so the
   * attempt does not wait on disk; a failed append is logged and the event
-  * dropped, since a throw would end the actor's scope.
+  * dropped, since a throw would end the writer's scope.
   */
-private class EventAppender(path: os.Path):
-  private val log = LoggerFactory.getLogger("orca.flow")
-
-  def append(event: RunEvent): Unit =
-    try os.write.append(path, RunEvent.encodeLine(event) + "\n")
-    catch
-      case NonFatal(e) =>
-        log.warn(s"appending to the run event log $path failed (dropped)", e)
+private def appendEvent(fs: FileSystem, path: os.Path, event: RunEvent): Unit =
+  try fs.append(path, RunEvent.encodeLine(event) + "\n")
+  catch
+    case NonFatal(e) =>
+      RunEventLog.log
+        .warn(s"appending to the run event log $path failed (dropped)", e)

@@ -3,9 +3,6 @@ package orca.review
 import orca.json.{JsonData, given}
 import orca.plan.Task
 
-// Not under capture checking: `derives JsonData` expands tapir's Schema macro,
-// which does not type-check there (same split as FixRequest.scala).
-
 /** One reviewer's findings, named so a report can attribute each one. */
 case class ReviewerFindings(reviewer: String, findings: List[ReviewFinding])
     derives JsonData

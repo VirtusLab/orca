@@ -1,8 +1,8 @@
 package orca.tools
 
 import orca.{OrcaDir, OrcaFlowException, WorkspaceWrite}
-
-import java.nio.file.FileSystems
+import orca.effect.FileSystem
+import orca.safe.prelude.{*, given}
 
 /** Filesystem adapter usable from flow scripts — the handle behind the `fs`
   * accessor. Reads, writes, and globs files against the flow's working
@@ -31,44 +31,38 @@ trait FsTool:
   def write(path: String, content: String)(using WorkspaceWrite): Unit
   def list(glob: String): List[String]
 
-/** `FsTool` implementation backed by os-lib. Path resolution and glob semantics
-  * are specified on the trait; the `list` traversal is narrowed to the deepest
+/** `FsTool` over the local filesystem. Path resolution and glob semantics are
+  * specified on the trait; the `list` traversal is narrowed to the deepest
   * wildcard-free prefix of the glob.
   */
-private[orca] class OsFsTool(base: os.Path = os.pwd) extends FsTool:
+private[orca] class OsFsTool(base: os.Path, fs: FileSystem) extends FsTool:
 
   def read(path: String): Option[String] =
     val p = resolve(path)
-    if os.isFile(p) then Some(os.read(p)) else None
+    if fs.isFile(p) then Some(fs.read(p)) else None
 
   def write(path: String, content: String)(using ws: WorkspaceWrite): Unit =
     ws.check("fs.write")
     val target = resolve(path)
     validateWriteTarget(path, target)
-    os.write.over(target, content, createFolders = true)
+    fs.writeOver(target, content)
 
   def list(glob: String): List[String] =
     validateGlob(glob)
-    val matcher =
-      FileSystems.getDefault.getPathMatcher(s"glob:$glob")
+    val matches = globMatcher(glob)
     val root = globRoot(glob)
-    if !os.exists(root) then Nil
+    if !fs.exists(root) then Nil
     else
-      os.walk
-        .stream(root)
-        .filter(os.isFile)
-        .filter(p => matcher.matches(p.relativeTo(base).toNIO))
-        .map(p => p.relativeTo(base).toString)
-        .toList
+      fs.files(root, p => matches(p.relativeTo(base)))
+        .map(_.relativeTo(base).toString)
 
-  private def resolve(path: String): os.Path =
-    os.Path(path, base)
+  private def resolve(path: String): os.Path = resolvePath(path, base)
 
   /** Refuses `target` unless, symlinks resolved, it lies in the working
     * directory and outside the directories orca manages.
     */
   private def validateWriteTarget(path: String, target: os.Path): Unit =
-    val realBase = os.Path(base.toNIO.toRealPath())
+    val realBase = fs.realPath(base)
     val real = realLocation(path, target)
     if !real.startsWith(realBase) then
       throw OrcaFlowException(
@@ -90,13 +84,13 @@ private[orca] class OsFsTool(base: os.Path = os.pwd) extends FsTool:
     * ancestor (itself included), plus the segments still to be created.
     */
   private def realLocation(path: String, target: os.Path): os.Path =
-    if os.exists(target) then os.Path(target.toNIO.toRealPath())
-    else if os.isLink(target) then
+    if fs.exists(target) then fs.realPath(target)
+    else if fs.isLink(target) then
       throw OrcaFlowException(
         s"fs.write: '$path' goes through the dangling symlink $target — " +
           "remove the link or write elsewhere"
       )
-    else realLocation(path, target / os.up) / target.last
+    else realLocation(path, target / up) / target.last
 
   /** Reject glob shapes `globRoot`'s segment fold can't handle cleanly: a
     * leading `/` (would only ever match nothing, since found paths are relative

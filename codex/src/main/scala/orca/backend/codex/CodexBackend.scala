@@ -18,11 +18,12 @@ import orca.backend.{
   IdScheme,
   SessionSupport,
   SubprocessSpawn,
-  TurnResources,
   SystemPromptComposer
 }
 import orca.backend.mcp.{AskUserMcpServer, AskUserSession}
+import orca.effect.{FileSystem, Network}
 import orca.subprocess.CliRunner
+import orca.safe.concurrency.defaultBufferCapacity
 import ox.{Ox, ResourceScope}
 
 /** Codex backend. Both autonomous and interactive paths drive `codex exec
@@ -44,28 +45,15 @@ import ox.{Ox, ResourceScope}
   * calls skip the bridge entirely.
   */
 private[orca] class CodexBackend(
+    net: Network,
+    fs: FileSystem,
     cli: CliRunner,
-    private[codex] val sessionsDir: os.Path = os.home / ".codex" / "sessions",
-    /** Fixed at construction; every spawn (`open`) runs in this directory. The
-      * `os.pwd` default serves bare/test construction; the runtime
-      * (`CodexAgents.default`) passes the flow's real `workDir`.
-      */
-    override val workDir: os.Path = os.pwd
+    /** [[CodexBackend.rolloutProbe]] in production. */
+    sessionProbe: String -> Boolean,
+    /** Fixed at construction; every spawn (`open`) runs in this directory. */
+    override val workDir: os.Path
 ) extends AgentBackend[BackendTag.Codex.type]:
 
-  /** Codex's threads are server-side and durable: the probe walks
-    * [[sessionsDir]] for a file matching `rollout-*-<server-id>.jsonl` (the
-    * caller's stable id never appears in a rollout filename).
-    *
-    * `false` results whenever no server id is mapped — including one that
-    * failed the [[orca.agents.SessionId.isSafe]] guard (blocks regex injection;
-    * e.g. `.*` would match every rollout file), the map not yet rehydrated, or
-    * the sessions dir missing.
-    *
-    * Some machines' codex uses SQLite (`~/.codex/state_5.sqlite`) instead of
-    * `rollout-*.jsonl`; with no matching files the probe returns `false` →
-    * re-seed, always safe.
-    */
   val tag: BackendTag.Codex.type = BackendTag.Codex
 
   export CodexArgs.enforcementCell
@@ -90,15 +78,7 @@ private[orca] class CodexBackend(
     * through `codex exec resume <server-id>`.
     */
   val sessions: SessionSupport[BackendTag.Codex.type] =
-    SessionSupport.durable(
-      IdScheme.ServerMinted,
-      id =>
-        os.exists(sessionsDir) && os.walk
-          .stream(sessionsDir)
-          .exists(p =>
-            p.last.startsWith("rollout-") && p.last.endsWith(s"-$id.jsonl")
-          )
-    )
+    SessionSupport.durable(IdScheme.ServerMinted, sessionProbe)
 
   /** Spawn `codex exec --json` (fresh) or `codex exec resume <server-id>`
     * (continuation), per `dispatch`, and wrap the process in a live
@@ -118,7 +98,7 @@ private[orca] class CodexBackend(
     import turn.*
     val schemaFile = writeSchemaIfPresent(outputSchema)
     val askUser: Option[AskUserSession] =
-      Option.when(mode.isInteractive)(AskUserSession.allocate())
+      Option.when(mode.isInteractive)(AskUserSession.allocate(net))
     SubprocessSpawn.open("codex", events) {
       // codex `exec` has no `--system-prompt` flag (it picks up `AGENTS.md`
       // files for static instructions), so fold the composed system prompt into
@@ -169,8 +149,35 @@ private[orca] class CodexBackend(
       ResourceScope
   ): Option[os.Path] =
     schema.map: body =>
-      TurnResources.tempFile(
+      fs.tempFile(
         body,
         prefix = "orca-codex-schema-",
         suffix = ".json"
       )
+
+private[orca] object CodexBackend:
+
+  /** Codex's threads are server-side and durable: the probe looks under
+    * `sessionsDir` for a file matching `rollout-*-<server-id>.jsonl` (the
+    * caller's stable id never appears in a rollout filename).
+    *
+    * `false` results whenever no server id is mapped — including one that
+    * failed the [[orca.agents.SessionId.isSafe]] guard (blocks regex injection;
+    * e.g. `.*` would match every rollout file), the map not yet rehydrated, or
+    * the sessions dir missing.
+    *
+    * Some machines' codex uses SQLite (`~/.codex/state_5.sqlite`) instead of
+    * `rollout-*.jsonl`; with no matching files the probe returns `false` →
+    * re-seed, always safe.
+    */
+  def rolloutProbe(
+      fs: FileSystem,
+      sessionsDir: os.Path
+  ): String ->{fs} Boolean =
+    id =>
+      fs.exists(sessionsDir) && fs
+        .findFile(
+          sessionsDir,
+          p => p.last.startsWith("rollout-") && p.last.endsWith(s"-$id.jsonl")
+        )
+        .nonEmpty

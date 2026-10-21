@@ -2,9 +2,9 @@ package orca.backend
 
 import orca.OrcaFlowException
 import orca.events.OrcaListener
+import orca.safe.concurrency.releaseAfterScope
 import orca.subprocess.PipedCliProcess
-
-import ox.{ResourceScope, releaseAfterScope}
+import ox.ResourceScope
 
 /** Spawns one turn's agent process and wraps it in a [[LiveTurn]], for the
   * subprocess backends (claude/codex/gemini/pi).
@@ -26,7 +26,7 @@ private[backend] object SubprocessSpawn:
       spawn: => PipedCliProcess
   )(build: PipedCliProcess => C)(using ResourceScope): C =
     val process = spawn
-    releaseAfterScope(EnvCookieSweep.afterScope(process.envCookie, events))
+    releaseAfterScope(EnvCookieSweep.afterScope(process, events))
     try build(process)
     catch
       case e: Exception =>

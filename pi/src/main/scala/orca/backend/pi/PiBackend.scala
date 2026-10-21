@@ -1,6 +1,7 @@
 package orca.backend.pi
 
 import orca.OrcaDir
+import orca.effect.FileSystem
 import orca.agents.{
   Model,
   AutoApprove,
@@ -20,10 +21,10 @@ import orca.backend.{
   IdScheme,
   SessionSupport,
   SubprocessSpawn,
-  SystemPromptComposer,
-  TurnResources
+  SystemPromptComposer
 }
 import orca.subprocess.CliRunner
+import orca.safe.prelude.given
 
 import ox.{Ox, ResourceScope}
 
@@ -41,21 +42,18 @@ import java.time.Instant
   * resumes on later ones.
   */
 private[orca] class PiBackend private[pi] (
+    fs: FileSystem,
     cli: CliRunner,
-    /** Working directory every spawn runs in. The `os.pwd` default serves test
-      * construction; the runtime passes the flow's real `workDir`.
-      */
-    override val workDir: os.Path = os.pwd,
-    /** Wall clock for the session-cache retention cutoff (see
-      * [[PiSessionStore.Retention]]).
-      */
-    clock: () => Instant = () => Instant.now()
+    /** [[PiBackend.transcriptProbe]] in production; given [[workDir]]. */
+    transcriptExists: (os.Path, String) -> Boolean,
+    /** Working directory every spawn runs in, and where the probe looks. */
+    override val workDir: os.Path
 ) extends AgentBackend[BackendTag.Pi.type]:
 
   // One session dir per Orca session id gives caller-stable continuity. The
   // claimed id is committed only after a successful turn, so both a retried
   // open-failure and a resumed run resolve fresh-vs-resume from the dir itself:
-  // `--continue` whenever `hasTranscript` finds a transcript pi already seeded
+  // `--continue` whenever `transcriptExists` finds a transcript pi already seeded
   // there, and a fresh seed when it says no.
 
   /** Durable: each session's transcript lives under
@@ -64,14 +62,10 @@ private[orca] class PiBackend private[pi] (
     * is a best-effort on-disk probe (ADR 0018 §2.6).
     */
   val sessions: SessionSupport[BackendTag.Pi.type] =
-    SessionSupport.durable(IdScheme.ClientClaimed, hasTranscript)
-
-  // A read path: probing must not create `.orca` (under the `os.pwd` default
-  // that would be the wrong tree) — only the spawn path creates.
-  private def hasTranscript(id: String): Boolean =
-    PiSessionStore
-      .dirFor(workDir, id)
-      .exists(dir => PiSessionStore.resumable(dir, workDir, clock()))
+    SessionSupport.durable(
+      IdScheme.ClientClaimed,
+      id => transcriptExists(workDir, id)
+    )
 
   val tag: BackendTag.Pi.type = BackendTag.Pi
 
@@ -93,7 +87,7 @@ private[orca] class PiBackend private[pi] (
     val extraHint = Option.when(mode.isInteractive)(PiAskUserExtension.Hint)
     val systemPromptFile = writeSystemPrompt(config, extraHint)
     val askUserExtension =
-      Option.when(mode.isInteractive)(PiAskUserExtension.write())
+      Option.when(mode.isInteractive)(PiAskUserExtension.write(fs))
 
     SubprocessSpawn.open("pi RPC", events) {
       val args = PiArgs.rpc(
@@ -101,7 +95,7 @@ private[orca] class PiBackend private[pi] (
         // inside `<base>/<session id>`, so the base must exist by spawn time.
         // Ensured per spawn, so a cache deleted mid-run is recreated.
         sessionDir =
-          OrcaDir.ensurePiSessions(workDir) / SessionId.value(session),
+          OrcaDir(fs).ensurePiSessions(workDir) / SessionId.value(session),
         dispatch = dispatch.asTurnDispatch,
         config = config,
         systemPromptFile = Some(systemPromptFile),
@@ -126,28 +120,43 @@ private[orca] class PiBackend private[pi] (
       extraHint: Option[String]
   )(using ResourceScope): os.Path =
     val file =
-      TurnResources.tempDir("orca-pi-system-prompt-") / "system-prompt.md"
-    os.write(file, SystemPromptComposer.combine(config, extraHint))
+      fs.tempDir("orca-pi-system-prompt-") / "system-prompt.md"
+    fs.writeNew(file, SystemPromptComposer.combine(config, extraHint))
     file
 
 private[orca] object PiBackend:
-  /** The runtime's door: builds a backend and prunes its session cache before
-    * handing it out, so no probe can call a dir the next prune would take
-    * resumable. The bare constructor stays effect-free because constructing
-    * with the `os.pwd` default must not prune the repo's own cache — that's
-    * what [[forInspection]] exists for.
+  /** The runtime's door: prunes the session cache under `workDir`, then builds
+    * a backend, so no probe can call a dir the next prune would take resumable.
     */
   private[orca] def create(
+      fs: FileSystem,
       cli: CliRunner,
+      transcriptExists: (os.Path, String) -> Boolean,
       workDir: os.Path,
-      clock: () => Instant = () => Instant.now()
-  ): PiBackend =
-    val backend = new PiBackend(cli, workDir, clock)
-    PiSessionStore.prune(workDir, clock())
-    backend
+      now: Instant
+  ): PiBackend^{fs} =
+    PiSessionStore(fs).prune(workDir, now)
+    new PiBackend(fs, cli, transcriptExists, workDir)
+
+  /** Whether `id`'s session dir under `workDir` holds a transcript pi resumes.
+    * A read path: it never creates `.orca`, only spawning does.
+    */
+  def transcriptProbe(
+      fs: FileSystem,
+      clock: () -> Instant
+  ): (os.Path, String) ->{fs} Boolean =
+    val store = PiSessionStore(fs)
+    (workDir, id) =>
+      PiSessionStore
+        .dirFor(workDir, id)
+        .exists(store.resumable(_, workDir, clock()))
 
   /** A backend built only to be inspected (enforcement tables, arg wiring),
-    * never spawned or probed: no workDir, no prune, no disk effects.
+    * never spawned or probed: no prune, no disk effects.
     */
-  private[orca] def forInspection(cli: CliRunner): PiBackend =
-    new PiBackend(cli)
+  private[orca] def forInspection(
+      fs: FileSystem,
+      cli: CliRunner,
+      workDir: os.Path
+  ): PiBackend^{fs} =
+    new PiBackend(fs, cli, (_, _) => false, workDir)

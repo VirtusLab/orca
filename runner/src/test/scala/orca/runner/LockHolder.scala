@@ -26,7 +26,7 @@ object LockHolder:
   /** Starts a holder of `lock` and waits until it is [[Ready]]. */
   def spawn(lock: Lock): os.SubProcess =
     val args = lock match
-      case Lock.Workdir(workDir) => List(workDir.toString)
+      case Lock.Workdir(workDir)               => List(workDir.toString)
       case Lock.Worktree(mainCheckout, prompt) =>
         List(mainCheckout.toString, prompt)
     os.proc(
@@ -59,7 +59,7 @@ object LockHolder:
     Option(holder.stdout.readLine()) match
       case Some(AcquiredLine) => Outcome.Acquired
       case Some(refusal)      => Outcome.Refused(refusal)
-      case None =>
+      case None               =>
         throw new IllegalStateException(
           s"the lock holder exited with code ${holder.wrapped.waitFor()}"
         )
@@ -69,7 +69,7 @@ object LockHolder:
     spawn(lock).tap: holder =>
       go(holder)
       outcome(holder) match
-        case Outcome.Acquired => ()
+        case Outcome.Acquired         => ()
         case Outcome.Refused(message) =>
           throw new IllegalStateException(
             s"the lock holder was refused: $message"
@@ -84,7 +84,7 @@ object LockHolder:
 
   def main(args: Array[String]): Unit =
     val lock = args.toList match
-      case List(workDir) => Lock.Workdir(os.Path(workDir))
+      case List(workDir)              => Lock.Workdir(os.Path(workDir))
       case List(mainCheckout, prompt) =>
         Lock.Worktree(os.Path(mainCheckout), prompt)
       case other => sys.error(s"unexpected arguments: $other")

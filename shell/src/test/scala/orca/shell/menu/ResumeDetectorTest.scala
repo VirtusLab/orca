@@ -1,5 +1,6 @@
 package orca.shell.menu
 
+import orca.effect.FileSystem
 import orca.{OrcaDir, RunKey, WorkspaceWrite}
 import orca.gitref.CommitHash
 import orca.progress.{BranchMode, FlowSource, ProgressHeader, ProgressStore}
@@ -34,7 +35,7 @@ class ResumeDetectorTest extends munit.FunSuite:
   test("detect finds a fresh log's recorded flow, prompt, and branch"):
     val workDir = TempDirs.dir()
     ProgressStore
-      .default(workDir, RunKey.of("fix the flaky test"))
+      .default(FileSystem.ambient, workDir, RunKey.of("fix the flaky test"))
       .writeHeader(header())
     assertEquals(
       ResumeDetector.detect(List(workDir)),
@@ -54,7 +55,7 @@ class ResumeDetectorTest extends munit.FunSuite:
   ):
     val workDir = TempDirs.dir()
     ProgressStore
-      .default(workDir, RunKey.of("fix the flaky test"))
+      .default(FileSystem.ambient, workDir, RunKey.of("fix the flaky test"))
       .writeHeader(header(flow = None))
     assertEquals(ResumeDetector.detect(List(workDir)), None)
 
@@ -62,7 +63,7 @@ class ResumeDetectorTest extends munit.FunSuite:
     val workDir = TempDirs.dir()
     val source = FlowSource.File("/home/u/scratch/implement.sc")
     ProgressStore
-      .default(workDir, RunKey.of("fix the flaky test"))
+      .default(FileSystem.ambient, workDir, RunKey.of("fix the flaky test"))
       .writeHeader(header(flow = Some(source)))
     assertEquals(ResumeDetector.detect(List(workDir)).map(_.flow), Some(source))
 
@@ -70,27 +71,39 @@ class ResumeDetectorTest extends munit.FunSuite:
     // FlowResolutionTest covers which paths those are.
     val workDir = TempDirs.dir()
     ProgressStore
-      .default(workDir, RunKey.of("fix the flaky test"))
+      .default(FileSystem.ambient, workDir, RunKey.of("fix the flaky test"))
       .writeHeader(header(flow = Some(FlowSource.File("scratch/x.sc"))))
     assertEquals(ResumeDetector.detect(List(workDir)), None)
 
   test("detect is None for a corrupt (unparseable) log, silently"):
     val workDir = TempDirs.dir()
-    val store = ProgressStore.default(workDir, RunKey.of("fix the flaky test"))
+    val store = ProgressStore.default(
+      FileSystem.ambient,
+      workDir,
+      RunKey.of("fix the flaky test")
+    )
     store.writeHeader(header())
     os.write.over(store.path, "not json {{{")
     assertEquals(ResumeDetector.detect(List(workDir)), None)
 
   test("detect picks the newest of multiple unfinished logs by mtime"):
     val workDir = TempDirs.dir()
-    val older = ProgressStore.default(workDir, RunKey.of("older prompt"))
+    val older = ProgressStore.default(
+      FileSystem.ambient,
+      workDir,
+      RunKey.of("older prompt")
+    )
     older.writeHeader(
       header(
         userPrompt = "older prompt",
         flow = Some(FlowSource.Catalog("a.sc"))
       )
     )
-    val newer = ProgressStore.default(workDir, RunKey.of("newer prompt"))
+    val newer = ProgressStore.default(
+      FileSystem.ambient,
+      workDir,
+      RunKey.of("newer prompt")
+    )
     newer.writeHeader(
       header(
         userPrompt = "newer prompt",
@@ -116,7 +129,7 @@ class ResumeDetectorTest extends munit.FunSuite:
     val shellDir = TempDirs.dir()
     val worktree = TempDirs.dir()
     ProgressStore
-      .default(worktree, RunKey.of("fix the flaky test"))
+      .default(FileSystem.ambient, worktree, RunKey.of("fix the flaky test"))
       .writeHeader(header())
     assertEquals(
       ResumeDetector.detect(List(shellDir, worktree)),
@@ -134,7 +147,11 @@ class ResumeDetectorTest extends munit.FunSuite:
   test("detect: the newest wins across directories, not within each"):
     val shellDir = TempDirs.dir()
     val worktree = TempDirs.dir()
-    val older = ProgressStore.default(worktree, RunKey.of("older prompt"))
+    val older = ProgressStore.default(
+      FileSystem.ambient,
+      worktree,
+      RunKey.of("older prompt")
+    )
     older.writeHeader(
       header(
         userPrompt = "older prompt",
@@ -142,7 +159,7 @@ class ResumeDetectorTest extends munit.FunSuite:
       )
     )
     ProgressStore
-      .default(shellDir, RunKey.of("newer prompt"))
+      .default(FileSystem.ambient, shellDir, RunKey.of("newer prompt"))
       .writeHeader(
         header(
           userPrompt = "newer prompt",
@@ -167,7 +184,7 @@ class ResumeDetectorTest extends munit.FunSuite:
   test("detect: an unreadable directory costs only its own logs"):
     val shellDir = TempDirs.dir()
     ProgressStore
-      .default(shellDir, RunKey.of("fix the flaky test"))
+      .default(FileSystem.ambient, shellDir, RunKey.of("fix the flaky test"))
       .writeHeader(header())
     // `.orca` present but not listable — the scan must still offer the log it
     // can read rather than dropping the whole thing.

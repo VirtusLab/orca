@@ -1,9 +1,9 @@
 package orca.tools
 
+import orca.effect.{FileSystem, Processes}
 import orca.gitref.BranchName
-import orca.subprocess.QuietProc
-
-import scala.util.control.NonFatal
+import orca.subprocess.CliResult
+import orca.safe.prelude.{*, given}
 
 /** Why [[Worktrees.add]] refused. `NoCommitsYet` is a case of its own because
   * the caller reports it in orca's own words; for anything else git's message
@@ -54,9 +54,7 @@ private[orca] enum StartBranchFailure:
   * the refusal into words. The writes, [[add]] and [[startBranch]], return
   * their failures.
   */
-private[orca] object Worktrees:
-
-  private val WorktreeLine = "worktree (.*)".r
+private[orca] final class Worktrees(procs: Processes, fs: FileSystem):
 
   /** The main checkout of the repository containing `cwd`, identical whether
     * `cwd` is that checkout or any linked worktree of it. `None` when `cwd` is
@@ -103,7 +101,7 @@ private[orca] object Worktrees:
         // not itself a checkout is refused rather than written to.
         else
           worktrees.headOption
-            .filter(p => os.exists(p / ".git"))
+            .filter(p => fs.exists(p / ".git"))
             .toRight(MainCheckoutFailure.MainWorktreeNotACheckout)
       case Some(_) => Left(MainCheckoutFailure.Unsupported)
 
@@ -116,8 +114,8 @@ private[orca] object Worktrees:
     probe(cwd, "worktree", "list", "--porcelain").toList
       .flatMap(_.linesIterator)
       .flatMap:
-        case WorktreeLine(path) => absolute(path)
-        case _                  => None
+        case Worktrees.WorktreeLine(path) => absolute(path)
+        case _                            => None
 
   /** Create a worktree at `path`, detached at `cwd`'s current HEAD.
     *
@@ -151,7 +149,7 @@ private[orca] object Worktrees:
         git(cwd, "worktree", "add", "--force", "--detach", path.toString)
       if result.exitCode == 0 then Right(())
       else
-        val stderr = result.err.text().trim
+        val stderr = result.stderr.trim
         Left(
           WorktreeAddFailure.GitFailed(
             if stderr.nonEmpty then stderr
@@ -179,7 +177,7 @@ private[orca] object Worktrees:
     else
       val result = git(worktree, "checkout", "-B", name.value)
       if result.exitCode == 0 then Right(())
-      else Left(StartBranchFailure.GitFailed(result.err.text().trim))
+      else Left(StartBranchFailure.GitFailed(result.stderr.trim))
 
   /** Whether HEAD is DEFINITELY on a branch — `false` for a detached checkout
     * and for a worktree that cannot be read, so a caller repairing a detached
@@ -201,14 +199,14 @@ private[orca] object Worktrees:
 
   /** Git prints absolute paths for both reads above; anything else means the
     * command did not do what was asked, which is "not known" rather than a
-    * failure to raise at a caller that has nowhere to put one — `os.Path`
+    * failure to raise at a caller that has nowhere to put one — `absolutePath`
     * throws on a relative or empty string.
     */
   private def absolute(path: String): Option[os.Path] =
-    Option.when(path.startsWith("/"))(os.Path(path))
+    Option.when(path.startsWith("/"))(absolutePath(path))
 
-  private def git(cwd: os.Path, args: String*): os.CommandResult =
-    QuietProc.call("git" +: args, cwd = cwd, env = OsGitTool.nonInteractiveEnv)
+  private def git(cwd: os.Path, args: String*): CliResult =
+    procs.call("git" +: args, cwd = cwd, env = OsGitTool.nonInteractiveEnv)
 
   /** Stdout of a read-only git command that exited 0; `None` on anything else,
     * including a subprocess that could not be started.
@@ -216,5 +214,8 @@ private[orca] object Worktrees:
   private def probe(cwd: os.Path, args: String*): Option[String] =
     try
       val result = git(cwd, args*)
-      if result.exitCode == 0 then Some(result.out.text()) else None
+      if result.exitCode == 0 then Some(result.stdout) else None
     catch case NonFatal(_) => None
+
+private[orca] object Worktrees:
+  private val WorktreeLine = "worktree (.*)".r

@@ -1,5 +1,6 @@
 package orca.runlog
 
+import orca.effect.FileSystem
 import orca.{AttemptId, OrcaDir, RunKey}
 import orca.sessions.SessionRecord
 import ox.{Ox, supervised}
@@ -25,6 +26,7 @@ object TestRunLog:
   def start(dir: os.Path, key: RunKey)(using Ox): RunEventLog =
     val clock = () => Instant.now()
     RunEventLog.start(
+      FileSystem.ambient,
       dir,
       key,
       AttemptId(clock(), pid = ProcessHandle.current().pid()),
@@ -39,5 +41,6 @@ object TestRunLog:
     */
   def records(dir: os.Path, key: RunKey): List[SessionRecord] =
     SessionProjection.records(
-      RunEventReader.read(OrcaDir.eventLogPath(dir, key))
+      new RunEventReader(orca.effect.FileSystem.ambient)
+        .read(OrcaDir.eventLogPath(dir, key))
     )

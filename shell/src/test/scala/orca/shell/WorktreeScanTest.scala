@@ -1,8 +1,7 @@
 package orca.shell
 
 import orca.{OrcaDir, RunKey}
-import orca.testkit.{GitRepo, TempDirs}
-import orca.tools.Worktrees
+import orca.testkit.{Effects, GitRepo, TempDirs}
 import ox.discard
 
 class WorktreeScanTest extends munit.FunSuite:
@@ -16,14 +15,14 @@ class WorktreeScanTest extends munit.FunSuite:
 
   test("an orca worktree is scanned alongside the checkout"):
     val repo = GitRepo.seeded()
-    val worktree = OrcaDir.ensureWorktrees(repo) / "0123456789ab"
-    assertEquals(Worktrees.add(repo, worktree), Right(()))
+    val worktree = Effects.orcaDir.ensureWorktrees(repo) / "0123456789ab"
+    assertEquals(Effects.worktrees.add(repo, worktree), Right(()))
     assertEquals(WorktreeScan.dirs(repo).all, List(repo, worktree))
 
   test("a worktree scans only itself, not the checkout that made it"):
     val repo = GitRepo.seeded()
-    val worktree = OrcaDir.ensureWorktrees(repo) / "0123456789ab"
-    assertEquals(Worktrees.add(repo, worktree), Right(()))
+    val worktree = Effects.orcaDir.ensureWorktrees(repo) / "0123456789ab"
+    assertEquals(Effects.worktrees.add(repo, worktree), Right(()))
     // git lists the checkout and the worktree from either one; the scan is
     // scoped to the `.orca/worktrees/` of the directory it is asked about, and
     // a worktree's own is empty.
@@ -31,10 +30,10 @@ class WorktreeScanTest extends munit.FunSuite:
 
   test("a worktree does not scan its siblings"):
     val repo = GitRepo.seeded()
-    val ours = OrcaDir.ensureWorktrees(repo) / "0123456789ab"
-    val sibling = OrcaDir.ensureWorktrees(repo) / "ba9876543210"
-    assertEquals(Worktrees.add(repo, ours), Right(()))
-    assertEquals(Worktrees.add(repo, sibling), Right(()))
+    val ours = Effects.orcaDir.ensureWorktrees(repo) / "0123456789ab"
+    val sibling = Effects.orcaDir.ensureWorktrees(repo) / "ba9876543210"
+    assertEquals(Effects.worktrees.add(repo, ours), Right(()))
+    assertEquals(Effects.worktrees.add(repo, sibling), Right(()))
     assertEquals(WorktreeScan.dirs(ours).all, List(ours))
     // Both are visible from the checkout they hang off.
     assertEquals(WorktreeScan.dirs(repo).all.toSet, Set(repo, ours, sibling))
@@ -42,7 +41,7 @@ class WorktreeScanTest extends munit.FunSuite:
   test("a worktree orca did not create is left out"):
     val repo = GitRepo.seeded()
     val theirs = repo / "review-their-branch"
-    assertEquals(Worktrees.add(repo, theirs), Right(()))
+    assertEquals(Effects.worktrees.add(repo, theirs), Right(()))
     // Its branch's committed progress log would otherwise become a resume
     // offer, handing that branch's prompt to an agent.
     assertEquals(WorktreeScan.dirs(repo).all, List(repo))
@@ -51,8 +50,8 @@ class WorktreeScanTest extends munit.FunSuite:
     val repo = GitRepo.seeded()
     val worktrees = List("aaaaaaaaaaaa", "bbbbbbbbbbbb", "cccccccccccc").map:
       name =>
-        val path = OrcaDir.ensureWorktrees(repo) / name
-        assertEquals(Worktrees.add(repo, path), Right(()))
+        val path = Effects.orcaDir.ensureWorktrees(repo) / name
+        assertEquals(Effects.worktrees.add(repo, path), Right(()))
         os.write(eventLog(path), "", createFolders = true)
         path
     // Newest attempt last-recorded wins; the shell's own checkout stays first.
@@ -68,8 +67,8 @@ class WorktreeScanTest extends munit.FunSuite:
     val repo = GitRepo.seeded()
     val List(oneRun, twoRuns) = List("aaaaaaaaaaaa", "bbbbbbbbbbbb").map:
       name =>
-        val path = OrcaDir.ensureWorktrees(repo) / name
-        assertEquals(Worktrees.add(repo, path), Right(()))
+        val path = Effects.orcaDir.ensureWorktrees(repo) / name
+        assertEquals(Effects.worktrees.add(repo, path), Right(()))
         path
     val older = OrcaDir.eventLogPath(twoRuns, RunKey.of("older"))
     List(eventLog(oneRun), eventLog(twoRuns), older).foreach:
@@ -82,8 +81,8 @@ class WorktreeScanTest extends munit.FunSuite:
   test("only the most recently used worktrees are scanned, up to the cap"):
     val repo = GitRepo.seeded()
     val worktrees = (0 to WorktreeScan.MaxScannedWorktrees).toList.map: i =>
-      val path = OrcaDir.ensureWorktrees(repo) / f"wt$i%012d"
-      assertEquals(Worktrees.add(repo, path), Right(()))
+      val path = Effects.orcaDir.ensureWorktrees(repo) / f"wt$i%012d"
+      assertEquals(Effects.worktrees.add(repo, path), Right(()))
       os.write(eventLog(path), "", createFolders = true)
       // Ascending mtimes, so index 0 is the least recently used.
       os.mtime.set(eventLog(path), 1000L + i * 1000L).discard

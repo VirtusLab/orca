@@ -1,6 +1,7 @@
 package orca.backend.codex
 
 import orca.agents.{Model, WireSessionId}
+import orca.effect.Network
 import orca.events.{TurnDebit, Usage}
 import orca.testkit.Usages.usage
 import orca.{OrcaFlowException, OrcaInteractiveCancelled}
@@ -413,7 +414,7 @@ class CodexTurnTest extends munit.FunSuite:
     live.cancel()
     live.awaitResult() match
       case Left(_: OrcaInteractiveCancelled) => ()
-      case other =>
+      case other                             =>
         fail(s"expected Left(OrcaInteractiveCancelled), got: $other")
     assertEquals(process.sigIntCount, 1)
 
@@ -744,7 +745,7 @@ class CodexTurnTest extends munit.FunSuite:
       val process = new FakePipedCliProcess()
       val live = CodexTurn(
         process,
-        askUser = AskUserChannel.Mcp(AskUserSession.allocate())
+        askUser = AskUserChannel.Mcp(AskUserSession.allocate(Network.ambient))
       )
 
       process.enqueueStdout(
@@ -795,7 +796,7 @@ class CodexTurnTest extends munit.FunSuite:
     supervised:
       given BufferCapacity = BufferCapacity(8)
       val process = new FakePipedCliProcess()
-      val askUser = AskUserSession.allocate()
+      val askUser = AskUserSession.allocate(Network.ambient)
       val live = CodexTurn(
         process,
         askUser = AskUserChannel.Mcp(askUser)

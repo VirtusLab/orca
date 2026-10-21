@@ -1,6 +1,7 @@
 package orca.progress
 
 import orca.{OrcaDir, RunKey, WorkspaceWrite}
+import orca.effect.FileSystem
 import orca.json.JsonFile
 
 /** Persistent store for a single flow run's [[ProgressLog]]. One
@@ -77,11 +78,18 @@ object ProgressStore:
     * same repo produce different files; rerunning the same prompt resumes the
     * same log.
     */
-  def default(workDir: os.Path, key: RunKey): ProgressStore =
-    OsProgressStore(workDir, key)
+  def default(
+      fs: FileSystem,
+      workDir: os.Path,
+      key: RunKey
+  ): ProgressStore^{fs} =
+    OsProgressStore(fs, workDir, key)
 
-private class OsProgressStore(workDir: os.Path, key: RunKey)
+private class OsProgressStore(fs: FileSystem, workDir: os.Path, key: RunKey)
     extends ProgressStore:
+
+  private val orcaDir = OrcaDir(fs)
+  private val jsonFile = JsonFile(fs)
 
   val path: os.Path = OrcaDir.progressPath(workDir, key)
 
@@ -90,13 +98,13 @@ private class OsProgressStore(workDir: os.Path, key: RunKey)
       case JsonFile.Read.Loaded(log) => Some(log)
       case _                         => None
 
-  def loadDetailed(): JsonFile.Read[ProgressLog] = JsonFile.read(path)
+  def loadDetailed(): JsonFile.Read[ProgressLog] = jsonFile.read(path)
 
   private[orca] def peek(): Either[String, PeekedLog] =
-    JsonFile
+    jsonFile
       .readBytes(path)
       .map:
-        case None => PeekedLog.Absent
+        case None        => PeekedLog.Absent
         case Some(bytes) =>
           JsonFile.decode[ProgressLog](bytes) match
             case Right(_) => PeekedLog.Parseable(bytes)
@@ -107,21 +115,21 @@ private class OsProgressStore(workDir: os.Path, key: RunKey)
   ): Unit =
     ws.check("progressStore.restoreIfRemoved")
     peeked match
-      case PeekedLog.Absent => ()
+      case PeekedLog.Absent           => ()
       case PeekedLog.Parseable(bytes) =>
         restoreBytesIfRemoved(bytes)
       case PeekedLog.Unparseable(bytes) =>
         restoreBytesIfRemoved(bytes)
 
   private def restoreBytesIfRemoved(bytes: IArray[Byte]): Unit =
-    if !os.exists(path) then
-      OrcaDir
+    if !fs.exists(path) then
+      orcaDir
         .progressFile(workDir, key)
-        .replace(IArray.genericWrapArray(bytes).toArray)
+        .replace(bytes)
 
   private[orca] def remove()(using ws: WorkspaceWrite): Unit =
     ws.check("progressStore.remove")
-    val _ = os.remove(path)
+    fs.remove(path)
 
   def writeHeader(header: ProgressHeader)(using ws: WorkspaceWrite): Unit =
     ws.check("progressStore.writeHeader")
@@ -153,7 +161,7 @@ private class OsProgressStore(workDir: os.Path, key: RunKey)
   private def currentLogOrThrow(callerName: String): ProgressLog =
     loadDetailed() match
       case JsonFile.Read.Loaded(log) => log
-      case JsonFile.Read.Absent =>
+      case JsonFile.Read.Absent      =>
         throw IllegalStateException(
           s"$callerName called before writeHeader: no log at $path"
         )
@@ -181,4 +189,4 @@ private class OsProgressStore(workDir: os.Path, key: RunKey)
   // which an append-only log can't express, and it's small and bounded so a
   // full rewrite is negligible.
   private def writeLog(log: ProgressLog): Unit =
-    JsonFile.write(OrcaDir.progressFile(workDir, key), log)
+    JsonFile.write(orcaDir.progressFile(workDir, key), log)

@@ -26,7 +26,7 @@ class OsGitHubToolTest extends munit.FunSuite:
 
   private def stubGh(response: CliResult): (StubCliRunner, OsGitHubTool) =
     val cli = new StubCliRunner(response)
-    (cli, new OsGitHubTool(cli, pollInterval = 10.millis))
+    (cli, new OsGitHubTool(cli, os.pwd, pollInterval = 10.millis))
 
   private class CapturingListener extends OrcaListener:
     private val seen = new ConcurrentLinkedQueue[OrcaEvent]()
@@ -97,11 +97,11 @@ class OsGitHubToolTest extends munit.FunSuite:
 
   /** A tool whose probe never retries, so a failing gh answers at once. */
   private def probeGh(cli: CliRunner): OsGitHubTool =
-    new OsGitHubTool(cli, readRetry = Schedule.immediate.maxRetries(0))
+    new OsGitHubTool(cli, os.pwd, readRetry = Schedule.immediate.maxRetries(0))
 
   /** A tool whose probe retries twice, with no delay. */
   private def retryingProbeGh(cli: CliRunner): OsGitHubTool =
-    new OsGitHubTool(cli, readRetry = Schedule.immediate.maxRetries(2))
+    new OsGitHubTool(cli, os.pwd, readRetry = Schedule.immediate.maxRetries(2))
 
   test("availability retries a repo view that fails once on the network"):
     val cli = new SequencedCliRunner(
@@ -390,7 +390,7 @@ class OsGitHubToolTest extends munit.FunSuite:
     val cli = createPrRunner(
       CliResult(0, "https://github.com/acme/widgets/pull/42\n", "")
     )
-    val gh = new OsGitHubTool(cli)
+    val gh = new OsGitHubTool(cli, os.pwd)
     val _ = gh.createPr("feat: hi", "hello").orThrow
     // gh must be given the branch symbolic-ref resolved, so pin the order.
     assertEquals(
@@ -407,14 +407,14 @@ class OsGitHubToolTest extends munit.FunSuite:
     val cli = createPrRunner(
       CliResult(0, "https://github.com/acme/widgets/pull/42\n", "")
     )
-    val gh = new OsGitHubTool(cli)
+    val gh = new OsGitHubTool(cli, os.pwd)
     assertEquals(gh.createPr("feat: hi", "hello").orThrow, samplePr)
 
   test("createPr keeps the host of a GitHub Enterprise PR URL"):
     val cli = createPrRunner(
       CliResult(0, "https://ghe.example.com/acme/widgets/pull/42\n", "")
     )
-    val gh = new OsGitHubTool(cli)
+    val gh = new OsGitHubTool(cli, os.pwd)
     assertEquals(
       gh.createPr("feat: hi", "hello").orThrow,
       prHandle("https://ghe.example.com/acme/widgets/pull/42")
@@ -425,7 +425,7 @@ class OsGitHubToolTest extends munit.FunSuite:
     val cli = createPrRunner(
       CliResult(0, "https://github.com/acme/widgets/pull/42\n", "")
     )
-    val gh = new OsGitHubTool(cli, events = listener)
+    val gh = new OsGitHubTool(cli, os.pwd, events = listener)
     val _ = gh.createPr("feat: hi", "hello").orThrow
     assertEquals(
       listener.events,
@@ -433,7 +433,8 @@ class OsGitHubToolTest extends munit.FunSuite:
     )
 
   test("createPr throws when gh output does not contain a PR URL"):
-    val gh = new OsGitHubTool(createPrRunner(CliResult(0, "no url here", "")))
+    val gh =
+      new OsGitHubTool(createPrRunner(CliResult(0, "no url here", "")), os.pwd)
     val _ = intercept[OrcaFlowException](gh.createPr("t", "b"))
 
   test(
@@ -445,7 +446,7 @@ class OsGitHubToolTest extends munit.FunSuite:
       CliResult(1, "", "a pull request for branch 'feat' already exists"),
       CliResult(0, "[]", "") // gh pr list — no open PR
     )
-    val gh = new OsGitHubTool(cli, readRetry = Schedule.immediate)
+    val gh = new OsGitHubTool(cli, os.pwd, readRetry = Schedule.immediate)
     assert(gh.createPr("t", "b").left.exists(_.isInstanceOf[PrAlreadyExists]))
 
   test(
@@ -458,7 +459,8 @@ class OsGitHubToolTest extends munit.FunSuite:
           "",
           "pull request create failed: No commits between main and feat"
         )
-      )
+      ),
+      os.pwd
     )
     assert(gh.createPr("t", "b").left.exists(_.isInstanceOf[NoCommitsToPr]))
 
@@ -475,14 +477,15 @@ class OsGitHubToolTest extends munit.FunSuite:
           "GraphQL: Head sha can't be blank, No commits between main and feat, " +
             "Head ref must be a branch (createPullRequest)"
         )
-      )
+      ),
+      os.pwd
     )
     assert(gh.createPr("t", "b").left.exists(_.isInstanceOf[BranchNotPushed]))
 
   test("createPr throws when not on a branch (detached HEAD)"):
     // `symbolic-ref --quiet` exits 1, printing nothing, when HEAD is detached.
     val cli = new SequencedCliRunner(List(CliResult(1, "", "")))
-    val gh = new OsGitHubTool(cli)
+    val gh = new OsGitHubTool(cli, os.pwd)
     val e = intercept[OrcaFlowException](gh.createPr("t", "b"))
     assert(e.getMessage.contains("not on a branch"), e.getMessage)
 
@@ -715,7 +718,7 @@ class OsGitHubToolTest extends munit.FunSuite:
     val successJson =
       """{"statusCheckRollup":[{"status":"COMPLETED","conclusion":"SUCCESS","name":"t"}]}"""
     val cli = new StubCliRunner(CliResult(0, pendingJson, ""))
-    val gh = new OsGitHubTool(cli, pollInterval = 10.millis)
+    val gh = new OsGitHubTool(cli, os.pwd, pollInterval = 10.millis)
 
     // Flip the stub to success after a couple of polls.
     val watcher = new Thread(() =>
@@ -736,7 +739,11 @@ class OsGitHubToolTest extends munit.FunSuite:
         CliResult(0, issueJson, "")
       )
     )
-    val gh = new OsGitHubTool(cli, readRetry = Schedule.immediate.maxRetries(2))
+    val gh = new OsGitHubTool(
+      cli,
+      os.pwd,
+      readRetry = Schedule.immediate.maxRetries(2)
+    )
     assertEquals(gh.readIssue(IssueHandle("a", "b", 1)).title, "t")
     assertEquals(cli.callCount, 2) // one failed attempt, then success
 
@@ -755,6 +762,7 @@ class OsGitHubToolTest extends munit.FunSuite:
     )
     val gh = new OsGitHubTool(
       cli,
+      os.pwd,
       pollInterval = 1.milli,
       readRetry = Schedule.immediate.maxRetries(3)
     )
@@ -770,6 +778,7 @@ class OsGitHubToolTest extends munit.FunSuite:
     )
     val gh = new OsGitHubTool(
       cli,
+      os.pwd,
       pollInterval = 1.milli,
       readRetry = Schedule.immediate.maxRetries(2)
     )
@@ -789,7 +798,7 @@ class OsGitHubToolTest extends munit.FunSuite:
     val pendingJson =
       """{"statusCheckRollup":[{"status":"IN_PROGRESS","name":"t"}]}"""
     val cli = new StubCliRunner(CliResult(0, pendingJson, ""))
-    val gh = new OsGitHubTool(cli, pollInterval = 5.millis)
+    val gh = new OsGitHubTool(cli, os.pwd, pollInterval = 5.millis)
     val watcher = new Thread(() =>
       // Wait past the grace window, then flip to an empty rollup. The
       // sticky `sawAnyCheck` should prevent NoChecksConfigured.
@@ -826,7 +835,7 @@ class OsGitHubToolTest extends munit.FunSuite:
         CliResult(0, pendingJson, "")
       )
     )
-    val gh = new OsGitHubTool(cli, pollInterval = 1.millis)
+    val gh = new OsGitHubTool(cli, os.pwd, pollInterval = 1.millis)
     val result = gh.waitForBuild(
       samplePr,
       timeout = 200.millis,
@@ -842,7 +851,7 @@ class OsGitHubToolTest extends munit.FunSuite:
     // fast-path fired — it's only reachable via the grace branch.
     val cli =
       new StubCliRunner(CliResult(0, """{"statusCheckRollup":[]}""", ""))
-    val gh = new OsGitHubTool(cli, pollInterval = 10.millis)
+    val gh = new OsGitHubTool(cli, os.pwd, pollInterval = 10.millis)
     val result = gh.waitForBuild(
       samplePr,
       timeout = 5.seconds,
@@ -877,6 +886,7 @@ class OsGitHubToolTest extends munit.FunSuite:
     )
     val gh = new OsGitHubTool(
       cli,
+      os.pwd,
       events = listener,
       readRetry = Schedule.immediate
     )
@@ -904,7 +914,7 @@ class OsGitHubToolTest extends munit.FunSuite:
       CliResult(1, "", "a pull request for branch 'feat' already exists"),
       CliResult(0, prListJson, "")
     )
-    val gh = new OsGitHubTool(cli, readRetry = Schedule.immediate)
+    val gh = new OsGitHubTool(cli, os.pwd, readRetry = Schedule.immediate)
     assertEquals(
       gh.createPr("feat: hi", "hello").orThrow,
       prHandle("https://ghe.example.com/acme/widgets/pull/42")
@@ -917,7 +927,7 @@ class OsGitHubToolTest extends munit.FunSuite:
     val cli = createPrRunner(
       CliResult(0, "https://github.com/acme/widgets/pull/42\n", "")
     )
-    val gh = new OsGitHubTool(cli)
+    val gh = new OsGitHubTool(cli, os.pwd)
     val _ = gh.createPr("feat: hi", "hello").orThrow
     val symbolicRefCall =
       cli.calls.headOption.getOrElse(fail("expected a git symbolic-ref call"))
@@ -942,7 +952,7 @@ class OsGitHubToolTest extends munit.FunSuite:
         CliResult(0, "", "") // writeComment create
       )
     )
-    val gh = new OsGitHubTool(cli, readRetry = Schedule.immediate)
+    val gh = new OsGitHubTool(cli, os.pwd, readRetry = Schedule.immediate)
     gh.upsertComment(samplePr, "<!-- orca:abc:reject -->", "Rejected.")
     // The create call must embed the marker in the body
     val createCall = cli.calls.last
@@ -961,7 +971,7 @@ class OsGitHubToolTest extends munit.FunSuite:
         CliResult(0, "", "") // PATCH update
       )
     )
-    val gh = new OsGitHubTool(cli, readRetry = Schedule.immediate)
+    val gh = new OsGitHubTool(cli, os.pwd, readRetry = Schedule.immediate)
     gh.upsertComment(samplePr, "<!-- orca:abc:reject -->", "New text.")
     // Exactly fetch + PATCH = 2 calls; no comment-create was made
     assertEquals(cli.callCount, 2, "expected exactly fetch + PATCH, not more")
@@ -989,7 +999,7 @@ class OsGitHubToolTest extends munit.FunSuite:
         CliResult(0, "", "") // writeComment create
       )
     )
-    val gh = new OsGitHubTool(cli, readRetry = Schedule.immediate)
+    val gh = new OsGitHubTool(cli, os.pwd, readRetry = Schedule.immediate)
     val issue = IssueHandle("acme", "widgets", 7)
     gh.upsertComment(issue, "<!-- orca:abc:triage -->", "Not a bug.")
     val createCall = cli.calls.last
@@ -1008,7 +1018,7 @@ class OsGitHubToolTest extends munit.FunSuite:
         CliResult(0, "", "") // PATCH update
       )
     )
-    val gh = new OsGitHubTool(cli, readRetry = Schedule.immediate)
+    val gh = new OsGitHubTool(cli, os.pwd, readRetry = Schedule.immediate)
     val issue = IssueHandle("acme", "widgets", 7)
     gh.upsertComment(issue, "<!-- orca:abc:triage -->", "Updated.")
     // Exactly fetch + PATCH = 2 calls; no comment-create was made

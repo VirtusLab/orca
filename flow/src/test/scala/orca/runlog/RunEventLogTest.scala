@@ -1,5 +1,6 @@
 package orca.runlog
 
+import orca.effect.FileSystem
 import orca.{AttemptId, OrcaDir, OrcaFlowException, RunKey, StagePath}
 import orca.agents.{BackendTag, Model, SessionKey}
 import orca.events.{Cost, CostBasis, OrcaEvent, StageOutcome, Usage}
@@ -70,6 +71,7 @@ class RunEventLogTest extends munit.FunSuite:
   private def started(dir: os.Path)(using ox.Ox): RunEventLog =
     given BufferCapacity = BufferCapacity(8)
     RunEventLog.start(
+      FileSystem.ambient,
       dir,
       key,
       attempt,
@@ -87,7 +89,7 @@ class RunEventLogTest extends munit.FunSuite:
     fileEvents(dir).drop(1).dropRight(1)
 
   private def fileEvents(dir: os.Path): List[RunEvent] =
-    RunEventReader.read(OrcaDir.eventLogPath(dir, key))
+    RunEventReader(FileSystem.ambient).read(OrcaDir.eventLogPath(dir, key))
 
   test("the log starts with AttemptStarted carrying the schema"):
     val dir = TempDirs.dir()
@@ -299,6 +301,17 @@ class RunEventLogTest extends munit.FunSuite:
         events.lastOption,
         Some(RunEvent.AttemptFinished(at, attempt, AttemptOutcome.Succeeded))
       )
+
+  test("an event after finish is dropped without throwing"):
+    val dir = TempDirs.dir()
+    supervised:
+      val log = started(dir)
+      log.finish(AttemptOutcome.Succeeded)
+      log.onEvent(OrcaEvent.StageStarted(outer))
+    assertEquals(
+      fileEvents(dir).lastOption,
+      Some(RunEvent.AttemptFinished(at, attempt, AttemptOutcome.Succeeded))
+    )
 
   test("a torn last line does not swallow the next AttemptStarted"):
     val dir = TempDirs.dir()

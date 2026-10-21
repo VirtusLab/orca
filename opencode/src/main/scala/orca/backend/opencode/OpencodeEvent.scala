@@ -1,7 +1,6 @@
 package orca.backend.opencode
 
-import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
-import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
+import orca.json.JsonCodec
 import orca.backend.opencode.OpencodeApi.{
   AssistantInfo,
   PermissionRequest,
@@ -95,21 +94,21 @@ private[opencode] object OpencodeEvent:
     * [[OpencodeEvent.Ignored]].
     */
   def parse(json: String): OpencodeEvent =
-    readFromString[Envelope](json).`type` match
+    JsonCodec.readString[Envelope](json).`type` match
       case "message.part.delta"   => parsePartDelta(json)
       case "message.part.updated" => parsePartUpdated(json)
       case "message.updated"      => parseMessageUpdated(json)
-      case "session.idle" =>
-        Idle(readFromString[SessionFrame](json).properties.sessionID)
-      case "session.error" => parseError(json)
+      case "session.idle"         =>
+        Idle(JsonCodec.readString[SessionFrame](json).properties.sessionID)
+      case "session.error"  => parseError(json)
       case "question.asked" =>
-        QuestionAsked(readFromString[QuestionFrame](json).properties)
+        QuestionAsked(JsonCodec.readString[QuestionFrame](json).properties)
       case "permission.asked" =>
-        PermissionAsked(readFromString[PermissionFrame](json).properties)
+        PermissionAsked(JsonCodec.readString[PermissionFrame](json).properties)
       case _ => Ignored
 
   private def parsePartDelta(json: String): OpencodeEvent =
-    val p = readFromString[PartDeltaFrame](json).properties
+    val p = JsonCodec.readString[PartDeltaFrame](json).properties
     p.field match
       case "text"      => TextDelta(p.sessionID, p.partID, p.delta)
       case "reasoning" => ReasoningDelta(p.sessionID, p.delta)
@@ -122,7 +121,7 @@ private[opencode] object OpencodeEvent:
     * parts (text/step/…) carry no event.
     */
   private def parsePartUpdated(json: String): OpencodeEvent =
-    val props = readFromString[PartUpdatedFrame](json).properties
+    val props = JsonCodec.readString[PartUpdatedFrame](json).properties
     val part = props.part
     if part.`type` == "reasoning" then
       ReasoningPart(props.sessionID.orElse(part.sessionID), part.id)
@@ -166,14 +165,14 @@ private[opencode] object OpencodeEvent:
     * the result.
     */
   private def parseMessageUpdated(json: String): OpencodeEvent =
-    val props = readFromString[MessageUpdatedFrame](json).properties
+    val props = JsonCodec.readString[MessageUpdatedFrame](json).properties
     val info = props.info
     if !info.role.contains("assistant") then Ignored
     else
       MessageUpdated(props.sessionID.orElse(info.sessionID).getOrElse(""), info)
 
   private def parseError(json: String): OpencodeEvent =
-    val p = readFromString[SessionFrame](json).properties
+    val p = JsonCodec.readString[SessionFrame](json).properties
     Errored(p.sessionID, p.error.map(errorMessage).getOrElse("session error"))
 
   /** The human-readable text of an error payload. OpenCode wraps errors as
@@ -182,7 +181,7 @@ private[opencode] object OpencodeEvent:
     */
   private[opencode] def errorMessage(error: RawJson): String =
     scala.util
-      .Try(readFromString[ErrorBody](error.value))
+      .Try(JsonCodec.readString[ErrorBody](error.value))
       .toOption
       .flatMap(b => b.message.orElse(b.data.flatMap(_.message)))
       .filter(_.nonEmpty)
@@ -190,13 +189,13 @@ private[opencode] object OpencodeEvent:
 
   // --- Wire shapes (only the fields the decoder inspects) ---
 
-  private case class Envelope(`type`: String) derives ConfiguredJsonValueCodec
+  private case class Envelope(`type`: String) derives JsonCodec
 
   private case class ToolState(
       status: Option[String] = None,
       input: Option[RawJson] = None,
       output: Option[String] = None
-  ) derives ConfiguredJsonValueCodec
+  ) derives JsonCodec
 
   private case class Part(
       `type`: String,
@@ -204,46 +203,44 @@ private[opencode] object OpencodeEvent:
       tool: Option[String] = None,
       sessionID: Option[String] = None,
       state: Option[ToolState] = None
-  ) derives ConfiguredJsonValueCodec
+  ) derives JsonCodec
 
   private case class PartDeltaProps(
       sessionID: String,
       partID: Option[String] = None,
       field: String = "",
       delta: String = ""
-  ) derives ConfiguredJsonValueCodec
+  ) derives JsonCodec
   private case class PartDeltaFrame(properties: PartDeltaProps)
-      derives ConfiguredJsonValueCodec
+      derives JsonCodec
 
   private case class PartUpdatedProps(
       part: Part,
       sessionID: Option[String] = None
-  ) derives ConfiguredJsonValueCodec
+  ) derives JsonCodec
   private case class PartUpdatedFrame(properties: PartUpdatedProps)
-      derives ConfiguredJsonValueCodec
+      derives JsonCodec
 
   private case class MessageUpdatedProps(
       info: AssistantInfo,
       sessionID: Option[String] = None
-  ) derives ConfiguredJsonValueCodec
+  ) derives JsonCodec
   private case class MessageUpdatedFrame(properties: MessageUpdatedProps)
-      derives ConfiguredJsonValueCodec
+      derives JsonCodec
 
   private case class SessionProps(
       sessionID: Option[String] = None,
       error: Option[RawJson] = None
-  ) derives ConfiguredJsonValueCodec
-  private case class SessionFrame(properties: SessionProps)
-      derives ConfiguredJsonValueCodec
+  ) derives JsonCodec
+  private case class SessionFrame(properties: SessionProps) derives JsonCodec
 
-  private case class ErrorData(message: Option[String] = None)
-      derives ConfiguredJsonValueCodec
+  private case class ErrorData(message: Option[String] = None) derives JsonCodec
   private case class ErrorBody(
       message: Option[String] = None,
       data: Option[ErrorData] = None
-  ) derives ConfiguredJsonValueCodec
+  ) derives JsonCodec
 
   private case class QuestionFrame(properties: QuestionRequest)
-      derives ConfiguredJsonValueCodec
+      derives JsonCodec
   private case class PermissionFrame(properties: PermissionRequest)
-      derives ConfiguredJsonValueCodec
+      derives JsonCodec

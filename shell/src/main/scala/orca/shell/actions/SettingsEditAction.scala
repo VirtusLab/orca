@@ -1,6 +1,7 @@
 package orca.shell.actions
 
 import orca.OrcaDir
+import orca.effect.FileSystem
 import orca.settings.{AgentSettings, SettingsFile}
 import orca.shell.{ShellEnv, Tier}
 import ox.discard
@@ -46,9 +47,9 @@ private[shell] object SettingsEditAction:
       case Tier.Global =>
         if !os.exists(path) then ConfigAction.set(path, AgentSettings.empty)
       case Tier.Project =>
-        OrcaDir.assertNoOrcaSymlinks(env.workDir, path)
+        OrcaDir(FileSystem.ambient).assertNoOrcaSymlinks(env.workDir, path)
         if !os.exists(path) then
-          OrcaDir.ensureRoot(env.workDir).discard
+          OrcaDir(FileSystem.ambient).ensureRoot(env.workDir).discard
           os.write(path, ProjectTemplate)
 
   /** Re-parses `tier`'s settings file after the editor exits, reusing

@@ -4,24 +4,20 @@ import orca.OrcaFlowException
 import orca.events.OrcaListener
 import orca.subprocess.{CliRunner, PipedCliProcess}
 import orca.backend.EnvCookieSweep
-import ox.{
-  Fork,
-  Ox,
+import orca.safe.Logger
+import orca.safe.concurrency.{
+  bufferedChannel,
   fork,
   forkDiscard,
   forkUnsupervised,
   forever,
   releaseAfterScope,
-  supervised,
-  useInScope
+  rendezvousChannel,
+  supervised
 }
-import ox.channels.{Channel, Sink, Source}
-import ox.either.{catching, orThrow}
-
-import org.slf4j.LoggerFactory
-
-import java.util.UUID
-import scala.util.control.NonFatal
+import orca.safe.prelude.{NonFatal, catching, orThrow, randomUuid}
+import ox.{Fork, Ox, ResourceScope}
+import ox.channels.{Sink, Source}
 
 /** An attempt's shared `opencode serve` process (ADR 0014). The process, its
   * output drains and its HTTP client live in one daemon fork of the scope that
@@ -47,7 +43,7 @@ private[opencode] final class OpencodeServer private (
     * `ChannelClosedException` once the owning scope has ended.
     */
   def http(): OpencodeHttp =
-    val replyTo = Channel.buffered[Either[Throwable, OpencodeHttp]](1)
+    val replyTo = bufferedChannel[Either[Throwable, OpencodeHttp]](1)
     requests.send(replyTo)
     replyTo.receive().orThrow
 
@@ -56,7 +52,7 @@ private[opencode] object OpencodeServer:
   /** Where the server answers one [[OpencodeServer.http]] call. */
   private type ReplyTo = Sink[Either[Throwable, OpencodeHttp]]
 
-  private val log = LoggerFactory.getLogger(classOf[OpencodeServer])
+  private val log = Logger("orca.backend.opencode.OpencodeServer")
 
   private val ListeningLine = """listening on (https?://\S+)""".r
 
@@ -67,16 +63,17 @@ private[opencode] object OpencodeServer:
     * [[OpencodeServer.http]] call, so a backend wired but never used spawns
     * nothing, and is destroyed when the scope ends. Work the process detached
     * and left running is then reported to `events`, which may no longer reach a
-    * closed terminal.
+    * closed terminal. `httpFor(baseUrl, password)` builds the client in the
+    * server's own scope, which releases it.
     */
   def apply(
       cli: CliRunner,
       workDir: os.Path,
       events: OrcaListener,
       launcher: OpencodeLauncher = OpencodeLauncher.default,
-      httpFor: (String, String) => OpencodeHttp = JavaNetOpencodeHttp.start
+      httpFor: (String, String) => ResourceScope ?=> OpencodeHttp
   )(using Ox): OpencodeServer =
-    val requests = Channel.rendezvous[ReplyTo]
+    val requests = rendezvousChannel[ReplyTo]
     val owner = new ServerOwner(cli, workDir, events, launcher, httpFor)
     forkDiscard:
       // `error`, not `done`: it also fails sends already waiting.
@@ -96,7 +93,7 @@ private[opencode] object OpencodeServer:
       workDir: os.Path,
       events: OrcaListener,
       launcher: OpencodeLauncher,
-      httpFor: (String, String) => OpencodeHttp
+      httpFor: (String, String) => ResourceScope ?=> OpencodeHttp
   ):
 
     /** Nothing is spawned until the first request. A start that fails answers
@@ -111,13 +108,11 @@ private[opencode] object OpencodeServer:
         firstReplyTo: ReplyTo,
         requests: Source[ReplyTo]
     )(using Ox): Unit =
-      val password = UUID.randomUUID.toString
+      val password = randomUuid()
       spawn(password).catching[Throwable] match
-        case Left(e) => firstReplyTo.send(Left(e))
+        case Left(e)        => firstReplyTo.send(Left(e))
         case Right(process) =>
-          releaseAfterScope(
-            EnvCookieSweep.afterScope(process.envCookie, events)
-          )
+          releaseAfterScope(EnvCookieSweep.afterScope(process, events))
           // Destroying the process here, before the scope joins the drains,
           // ends their pipe reads. Tree-destroy, as a launch wrapper (ollama)
           // forks the real serve.
@@ -151,13 +146,13 @@ private[opencode] object OpencodeServer:
       val baseUrl = forkUnsupervised(out.flatMap(parseBaseUrl).nextOption())
         .join()
         .getOrElse(failedToStart(process, errTail))
-      log.debug("opencode server started, listening on {}", baseUrl)
+      log.debug(s"opencode server started, listening on $baseUrl")
       // Resumes the same iterator past the bind line, so the server's log
       // output can't back-fill the pipe and stall it.
       forkDiscard:
         try out.foreach(_ => ())
         catch case NonFatal(e) => log.debug("opencode stdout drain ended", e)
-      useInScope(httpFor(baseUrl, password))(_.close())
+      httpFor(baseUrl, password)
 
     /** Drains stderr so a chatty launcher can't fill the pipe, returning the
       * last lines for a start-failure message.
@@ -165,7 +160,7 @@ private[opencode] object OpencodeServer:
     private def stderrTail(process: PipedCliProcess): Vector[String] =
       try
         process.stderrLines.foldLeft(Vector.empty[String]): (tail, line) =>
-          log.debug("opencode serve stderr: {}", line)
+          log.debug(s"opencode serve stderr: $line")
           (tail :+ line).takeRight(MaxErrTailLines)
       catch
         case NonFatal(e) =>

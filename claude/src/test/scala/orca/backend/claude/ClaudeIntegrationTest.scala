@@ -1,5 +1,6 @@
 package orca.backend.claude
 
+import orca.effect.{FileSystem, Network, Processes}
 import orca.testkit.OpenTurn
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
@@ -14,6 +15,7 @@ import orca.agents.{
 import orca.backend.{TurnEvent, Dispatch, SupervisedBackend}
 import orca.subprocess.OsProcCliRunner
 import orca.testkit.{GitRepo, TempDirs}
+import orca.tools.OsGitTool
 import orca.backend.claude.streamjson.OutboundMessage
 
 /** End-to-end tests against the real `claude` CLI. Gated on the
@@ -31,9 +33,23 @@ class ClaudeIntegrationTest extends munit.FunSuite:
     import scala.concurrent.duration.DurationInt
     2.minutes
 
+  /** Over the real CLI and its real transcript directory. */
+  private def realBackend(workDir: os.Path): ClaudeBackend =
+    val fs = FileSystem.ambient
+    val procs = Processes.ambient
+    new ClaudeBackend(
+      Network.ambient,
+      fs,
+      OsProcCliRunner(procs),
+      new OsGitTool(_, procs, fs),
+      // Same path as ClaudeAgents.default.
+      ClaudeBackend.transcriptProbe(fs, os.home / ".claude" / "projects"),
+      workDir
+    )
+
   private def withBackend(body: ox.Ox ?=> ClaudeBackend => Unit): Unit =
     SupervisedBackend.using(
-      new ClaudeBackend(OsProcCliRunner, workDir = TempDirs.dir())
+      realBackend(TempDirs.dir())
     )(body)
 
   private def fresh = SessionId.fresh[BackendTag.ClaudeCode.type]
@@ -158,7 +174,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
     val _ = os.proc("git", "commit", "-m", "add secret").call(cwd = repo)
     os.write.over(repo / "secret.txt", "OVERWRITTEN")
     SupervisedBackend.using(
-      new ClaudeBackend(OsProcCliRunner, workDir = repo)
+      realBackend(repo)
     ): backend =>
       val result = backend.runAutonomous(
         prompt = "Use git_file_at to read secret.txt at HEAD. Reply with " +
@@ -195,7 +211,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
     val _ = os.proc("git", "add", "-A").call(cwd = repo)
     val _ = os.proc("git", "commit", "-m", "PINEAPPLE commit").call(cwd = repo)
     SupervisedBackend.using(
-      new ClaudeBackend(OsProcCliRunner, workDir = repo)
+      realBackend(repo)
     ): backend =>
       val result = backend.runAutonomous(
         prompt = "Call git_show for HEAD, passing only the rev. Reply with " +

@@ -1,7 +1,7 @@
 package orca
 
 import ox.discard
-import orca.testkit.TempDirs
+import orca.testkit.{Effects, TempDirs}
 
 import java.time.Instant
 
@@ -9,7 +9,7 @@ class OrcaDirTest extends munit.FunSuite:
 
   test("ensureCache creates the cache dir with exact marker file contents"):
     val wd = TempDirs.dir()
-    val cache = OrcaDir.ensureCache(wd)
+    val cache = Effects.orcaDir.ensureCache(wd)
     assertEquals(cache, wd / ".orca" / "cache")
     assert(os.isDir(cache))
     assertEquals(
@@ -24,17 +24,17 @@ class OrcaDirTest extends munit.FunSuite:
 
   test("second ensureCache call leaves existing marker files untouched"):
     val wd = TempDirs.dir()
-    val cache = OrcaDir.ensureCache(wd)
+    val cache = Effects.orcaDir.ensureCache(wd)
     // Surviving canaries prove the files are written only when absent.
     os.write.over(cache / ".gitignore", "canary-gitignore")
     os.write.over(cache / "CACHEDIR.TAG", "canary-tag")
-    assertEquals(OrcaDir.ensureCache(wd), cache)
+    assertEquals(Effects.orcaDir.ensureCache(wd), cache)
     assertEquals(os.read(cache / ".gitignore"), "canary-gitignore")
     assertEquals(os.read(cache / "CACHEDIR.TAG"), "canary-tag")
 
   test("ensureRoot creates .orca only, without the cache dir"):
     val wd = TempDirs.dir()
-    val root = OrcaDir.ensureRoot(wd)
+    val root = Effects.orcaDir.ensureRoot(wd)
     assertEquals(root, wd / ".orca")
     assert(os.isDir(root))
     assert(!os.exists(root / "cache"))
@@ -46,7 +46,7 @@ class OrcaDirTest extends munit.FunSuite:
 
   test("ensureWorktrees writes the .gitignore but no CACHEDIR.TAG"):
     val wd = TempDirs.dir()
-    val worktrees = OrcaDir.ensureWorktrees(wd)
+    val worktrees = Effects.orcaDir.ensureWorktrees(wd)
     assertEquals(worktrees, wd / ".orca" / "worktrees")
     assertEquals(
       os.read(worktrees / ".gitignore"),
@@ -60,7 +60,7 @@ class OrcaDirTest extends munit.FunSuite:
     os.makeDir.all(outside)
     os.makeDir.all(OrcaDir.rootPath(wd))
     os.symlink(OrcaDir.worktreesPath(wd), outside)
-    intercept[OrcaFlowException](OrcaDir.ensureWorktrees(wd)).discard
+    intercept[OrcaFlowException](Effects.orcaDir.ensureWorktrees(wd)).discard
     assert(os.list(outside).isEmpty, "no write must go through the symlink")
 
   test("flowsPath points at .orca/flows without creating it"):
@@ -70,10 +70,10 @@ class OrcaDirTest extends munit.FunSuite:
 
   test("ensureFlows creates .orca/flows and is idempotent"):
     val wd = TempDirs.dir()
-    val flows = OrcaDir.ensureFlows(wd)
+    val flows = Effects.orcaDir.ensureFlows(wd)
     assertEquals(flows, wd / ".orca" / "flows")
     assert(os.isDir(flows))
-    assertEquals(OrcaDir.ensureFlows(wd), flows)
+    assertEquals(Effects.orcaDir.ensureFlows(wd), flows)
 
   test("ensureFlows aborts on a symlinked .orca/flows"):
     val wd = TempDirs.dir()
@@ -81,12 +81,12 @@ class OrcaDirTest extends munit.FunSuite:
     os.makeDir.all(outside)
     os.makeDir.all(OrcaDir.rootPath(wd))
     os.symlink(OrcaDir.rootPath(wd) / "flows", outside)
-    intercept[OrcaFlowException](OrcaDir.ensureFlows(wd)).discard
+    intercept[OrcaFlowException](Effects.orcaDir.ensureFlows(wd)).discard
     assert(os.list(outside).isEmpty, "no write must go through the symlink")
 
   test("assertNoOrcaSymlinks is a no-op when .orca doesn't exist"):
     val wd = TempDirs.dir()
-    OrcaDir.assertNoOrcaSymlinks(wd, OrcaDir.flowsPath(wd))
+    Effects.orcaDir.assertNoOrcaSymlinks(wd, OrcaDir.flowsPath(wd))
     assert(
       !os.exists(OrcaDir.rootPath(wd)),
       "must not create .orca as a side effect"
@@ -94,8 +94,8 @@ class OrcaDirTest extends munit.FunSuite:
 
   test("assertNoOrcaSymlinks passes silently for a real .orca/flows dir"):
     val wd = TempDirs.dir()
-    OrcaDir.ensureFlows(wd).discard
-    OrcaDir.assertNoOrcaSymlinks(wd, OrcaDir.flowsPath(wd))
+    Effects.orcaDir.ensureFlows(wd).discard
+    Effects.orcaDir.assertNoOrcaSymlinks(wd, OrcaDir.flowsPath(wd))
 
   test("assertNoOrcaSymlinks aborts on a symlinked .orca/flows"):
     val wd = TempDirs.dir()
@@ -104,13 +104,13 @@ class OrcaDirTest extends munit.FunSuite:
     os.makeDir.all(OrcaDir.rootPath(wd))
     os.symlink(OrcaDir.rootPath(wd) / "flows", outside)
     val ex = intercept[OrcaFlowException](
-      OrcaDir.assertNoOrcaSymlinks(wd, OrcaDir.flowsPath(wd))
+      Effects.orcaDir.assertNoOrcaSymlinks(wd, OrcaDir.flowsPath(wd))
     )
     assert(ex.getMessage.contains("symlink"), ex.getMessage)
 
   test("a committed file's replace leaves only the file in its directory"):
     val wd = TempDirs.dir()
-    val file = OrcaDir.progressFile(wd, RunKey.of("p"))
+    val file = Effects.orcaDir.progressFile(wd, RunKey.of("p"))
     file.replace("{}")
     assertEquals(os.list(OrcaDir.runsPath(wd)).toList, List(file.path))
 
@@ -121,7 +121,7 @@ class OrcaDirTest extends munit.FunSuite:
     os.makeDir.all(OrcaDir.rootPath(wd))
     os.symlink(OrcaDir.runsPath(wd), outside)
     intercept[OrcaFlowException](
-      OrcaDir.progressFile(wd, RunKey.of("p"))
+      Effects.orcaDir.progressFile(wd, RunKey.of("p"))
     ).discard
 
   test("runsPath points at .orca/runs without creating anything"):
@@ -142,7 +142,7 @@ class OrcaDirTest extends munit.FunSuite:
     os.write(outside, "kept")
     os.makeDir.all(OrcaDir.rootPath(wd))
     os.symlink(OrcaDir.settingsPath(wd), outside)
-    OrcaDir.settingsFile(wd).replace("format = x\n")
+    Effects.orcaDir.settingsFile(wd).replace("format = x\n")
     assert(!os.isLink(OrcaDir.settingsPath(wd)))
     assertEquals(os.read(OrcaDir.settingsPath(wd)), "format = x\n")
     assertEquals(os.read(outside), "kept")
@@ -182,7 +182,7 @@ class OrcaDirTest extends munit.FunSuite:
   test("ensureRunDir creates .orca/cache/runs/<key>, with the cache markers"):
     val wd = TempDirs.dir()
     val key = RunKey.of("p")
-    val runDir = OrcaDir.ensureRunDir(wd, key)
+    val runDir = Effects.orcaDir.ensureRunDir(wd, key)
     assertEquals(runDir, OrcaDir.runDirPath(wd, key))
     assert(os.isDir(runDir))
     assert(os.exists(wd / ".orca" / "cache" / ".gitignore"))
@@ -195,13 +195,13 @@ class OrcaDirTest extends munit.FunSuite:
     os.makeDir.all(outside)
     os.makeDir.all(OrcaDir.cacheRunsPath(wd))
     os.symlink(OrcaDir.runDirPath(wd, key), outside)
-    intercept[OrcaFlowException](OrcaDir.ensureRunDir(wd, key)).discard
+    intercept[OrcaFlowException](Effects.orcaDir.ensureRunDir(wd, key)).discard
 
   test(
     "ensurePiSessions creates .orca/cache/pi-sessions, including the cache markers"
   ):
     val wd = TempDirs.dir()
-    val sessions = OrcaDir.ensurePiSessions(wd)
+    val sessions = Effects.orcaDir.ensurePiSessions(wd)
     assertEquals(sessions, wd / ".orca" / "cache" / "pi-sessions")
     assert(os.isDir(sessions))
     assert(os.exists(wd / ".orca" / "cache" / ".gitignore"))
@@ -210,9 +210,9 @@ class OrcaDirTest extends munit.FunSuite:
     val wd = TempDirs.dir()
     val outside = TempDirs.dir() / "outside-sessions"
     os.makeDir.all(outside)
-    OrcaDir.ensureCache(wd).discard
+    Effects.orcaDir.ensureCache(wd).discard
     os.symlink(OrcaDir.piSessionsPath(wd), outside)
-    intercept[OrcaFlowException](OrcaDir.ensurePiSessions(wd)).discard
+    intercept[OrcaFlowException](Effects.orcaDir.ensurePiSessions(wd)).discard
 
   test(
     "piSessionsPath points at .orca/cache/pi-sessions without creating anything"

@@ -35,7 +35,7 @@ object Announce:
   ): Announcement =
     instance match
       case _: NoSpecific[?] => Announcement.Unannounced
-      case specific =>
+      case specific         =>
         specific
           .message(value)
           .filter(_.nonEmpty)
@@ -51,11 +51,11 @@ object Announce:
     * then "" else "…")` without the empty-branch landing on screen as a blank
     * line.
     */
-  def from[O](f: O => String): Announce[O] = (value: O) =>
+  def from[O](f: O -> String): Announce[O] = (value: O) =>
     f(value) match
       case ""  => None
       case msg => Some(msg)
 
   /** Construct from a function returning `Option[String]` directly. */
-  def fromOption[O](f: O => Option[String]): Announce[O] =
+  def fromOption[O](f: O -> Option[String]): Announce[O] =
     (value: O) => f(value)

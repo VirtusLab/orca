@@ -43,6 +43,9 @@ class OpencodeBackendTest extends munit.FunSuite:
       extends OpencodeServerHandle:
     def http(): OpencodeHttp = httpThunk
 
+  private def backendOn(server: OpencodeServerHandle): OpencodeBackend =
+    new OpencodeBackend(server, os.pwd)
+
   private def data(json: String): String = s"data: $json"
 
   private def turn(
@@ -76,7 +79,7 @@ class OpencodeBackendTest extends munit.FunSuite:
           )
         )
       )
-      val backend = new OpencodeBackend(new FakeHandle(http))
+      val backend = backendOn(new FakeHandle(http))
       val client = fresh
       val result =
         backend.runAutonomous("hi", client, AgentConfig())
@@ -106,7 +109,7 @@ class OpencodeBackendTest extends munit.FunSuite:
   ):
     supervised:
       val http = new FakeHttp(turn("ses_server1", "stop", Nil))
-      val backend = new OpencodeBackend(new FakeHandle(http))
+      val backend = backendOn(new FakeHandle(http))
       val client = fresh
       val _ =
         backend.runAutonomous("one", client, AgentConfig())
@@ -120,14 +123,14 @@ class OpencodeBackendTest extends munit.FunSuite:
     // `format: json_schema` (the body field asserted in OpencodeArgsTest) makes
     // the server deliver the payload through an injected StructuredOutput tool.
     supervised:
-      val backend = new OpencodeBackend(new FakeHandle(new FakeHttp(Nil)))
+      val backend = backendOn(new FakeHandle(new FakeHttp(Nil)))
       assertEquals(backend.structuredOutputMode, StructuredOutputMode.Tool)
 
   // Provider-matched, so incidental work doesn't pull in a second provider's
   // auth.
   test("an openai-led agent's cheap tier is openai luna"):
     supervised:
-      val backend = new OpencodeBackend(new FakeHandle(new FakeHttp(Nil)))
+      val backend = backendOn(new FakeHandle(new FakeHttp(Nil)))
       assertEquals(
         backend.cheapModel(Some(Model("openai/gpt-6-sol"))),
         Some(Model("openai/gpt-6-luna"))
@@ -135,7 +138,7 @@ class OpencodeBackendTest extends munit.FunSuite:
 
   test("any other agent's cheap tier is anthropic haiku"):
     supervised:
-      val backend = new OpencodeBackend(new FakeHandle(new FakeHttp(Nil)))
+      val backend = backendOn(new FakeHandle(new FakeHttp(Nil)))
       assertEquals(
         backend.cheapModel(Some(Model("ollama/llama3.1"))),
         Some(Model("anthropic/claude-haiku-5-5"))
@@ -144,7 +147,7 @@ class OpencodeBackendTest extends munit.FunSuite:
   test("registerSession lets a later call resume that server session directly"):
     supervised:
       val http = new FakeHttp(turn("ses_X", "stop", Nil))
-      val backend = new OpencodeBackend(new FakeHandle(http))
+      val backend = backendOn(new FakeHandle(http))
       val client = fresh
       backend.sessions.register(
         client,
@@ -171,7 +174,7 @@ class OpencodeBackendTest extends munit.FunSuite:
           )
         )
       )
-      val backend = new OpencodeBackend(new FakeHandle(http))
+      val backend = backendOn(new FakeHandle(http))
       val live = OpenTurn.interactive(backend)(
         "q",
         fresh,
@@ -195,7 +198,7 @@ class OpencodeBackendTest extends munit.FunSuite:
       // Nothing has mapped this client id, so `dispatchFor` must
       // short-circuit WITHOUT forcing `http` — the fake
       // handle fails the test if it is ever forced.
-      val backend = new OpencodeBackend(
+      val backend = backendOn(
         new FakeHandle(fail("must not spawn"))
       )
       val client = fresh
@@ -217,7 +220,7 @@ class OpencodeBackendTest extends munit.FunSuite:
         Nil,
         path => if path == "/session/ses_server1" then 200 else 404
       )
-      val backend = new OpencodeBackend(new FakeHandle(http))
+      val backend = backendOn(new FakeHandle(http))
       val client = fresh
       backend.sessions.rehydrate(
         client,
@@ -239,7 +242,7 @@ class OpencodeBackendTest extends munit.FunSuite:
         turn(existingId, "stop", Nil),
         path => if path == s"/session/$existingId" then 200 else 404
       )
-      val backend = new OpencodeBackend(new FakeHandle(http))
+      val backend = backendOn(new FakeHandle(http))
       val _ =
         backend.runAutonomous("hi", fresh, AgentConfig())
       // A different, unmapped client id resolves to no server id → false.
@@ -254,13 +257,13 @@ class OpencodeBackendTest extends munit.FunSuite:
         Nil,
         path => if path == "/session/ses_abc" then 200 else 404
       )
-      val backend = new OpencodeBackend(new FakeHandle(http))
+      val backend = backendOn(new FakeHandle(http))
       assert(backend.probeSession("ses_abc", http))
 
   test("probeSession returns false when getStatus is 404"):
     supervised:
       val http = new FakeHttp(Nil, _ => 404)
-      val backend = new OpencodeBackend(new FakeHandle(http))
+      val backend = backendOn(new FakeHandle(http))
       assert(!backend.probeSession("ses_missing", http))
 
   test(
@@ -268,7 +271,7 @@ class OpencodeBackendTest extends munit.FunSuite:
   ):
     supervised:
       val http = new FakeHttp(Nil, _ => 404)
-      val backend = new OpencodeBackend(new FakeHandle(http))
+      val backend = backendOn(new FakeHandle(http))
       val client = fresh
       backend.sessions.rehydrate(
         client,
@@ -286,7 +289,7 @@ class OpencodeBackendTest extends munit.FunSuite:
       val http = new FakeHttp(Nil):
         override def getStatus(path: String): Int =
           throw new java.io.IOException("connection refused")
-      val backend = new OpencodeBackend(new FakeHandle(http))
+      val backend = backendOn(new FakeHandle(http))
       assert(!backend.probeSession("ses_abc", http))
 
   test(
@@ -302,7 +305,7 @@ class OpencodeBackendTest extends munit.FunSuite:
           if path == "/session" then
             throw new OrcaFlowException("boom: session create failed")
           else super.postJson(path, body)
-      val backend = new OpencodeBackend(new FakeHandle(http))
+      val backend = backendOn(new FakeHandle(http))
       val _ = intercept[OrcaFlowException]:
         backend.runAutonomous("hi", fresh, AgentConfig())
       assert(

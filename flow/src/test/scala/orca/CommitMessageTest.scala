@@ -2,7 +2,7 @@ package orca
 
 import orca.events.EventDispatcher
 import orca.agents.{Agent, BackendTag}
-import orca.testkit.{ScriptedBackend, TestAgent, TextReplyingAgent}
+import orca.testkit.{Effects, ScriptedBackend, TestAgent, TextReplyingAgent}
 import ox.discard
 
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -141,7 +141,7 @@ class CommitMessageTest extends munit.FunSuite:
         // A mid-stage event-log append, to pin that the stage diff carries
         // nothing from `.orca/` — the log the first stage committed included.
         val key = RunKey.of("p")
-        OrcaDir.ensureRunDir(run.dir, key).discard
+        Effects.orcaDir.ensureRunDir(run.dir, key).discard
         os.write.append(OrcaDir.eventLogPath(run.dir, key), "{}\n")
         "done"
       val _ = nextPrompt(prompts)

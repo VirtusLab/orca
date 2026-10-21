@@ -1,28 +1,26 @@
 package orca.backend.mcp
 
-import chimp.server.*
-import io.circe.Codec
+import chimp.server.{NoStructuredOutput, ToolResult}
+import orca.effect.Network
+import orca.json.JsonData
+import orca.safe.mcp
 import orca.tools.{GitReadFailed, GitTool, ShowDetail}
 import ox.Ox
-import sttp.tapir.Schema
+import orca.safe.prelude.DurationInt
 
-import scala.concurrent.duration.{DurationInt, FiniteDuration}
+import scala.concurrent.duration.FiniteDuration
 
-/** `paths` and `stat` are `Option`, not defaulted fields: the derived circe
-  * codec does not honour a Scala default, so a missing key on a plain
-  * `List`/`Boolean` is a decode failure. The tool advertises both as optional,
-  * so the agent omits them.
+/** `paths` and `stat` are `Option`, not defaulted fields, so the tool
+  * advertises both as optional and a call that omits them decodes.
   */
 private[mcp] case class GitShowInput(
     rev: String,
     paths: Option[List[String]],
     stat: Option[Boolean]
-) derives Codec,
-      Schema
+) derives JsonData
 
 private[mcp] case class GitFileAtInput(rev: String, path: String)
-    derives Codec,
-      Schema
+    derives JsonData
 
 /** MCP tools giving read-only turns the git reads they lose with the shell. Two
   * tools, both structured — the agent names a revision and paths, never a
@@ -56,33 +54,29 @@ private[backend] object RepoMcpServer:
   private[orca] val ToolSlugs: Seq[String] = Seq(ShowSlug, FileAtSlug)
 
   /** Mount both tools on a fresh [[McpHost]], reading through `git`. */
-  def start(git: GitTool)(using Ox): McpHost =
-    val showTool = tool(ShowSlug)
-      .description(
-        "Show a commit: its message and diff, or with stat=true just which " +
-          "files it changed. Optionally narrow the diff to specific " +
-          "repository-relative paths."
-      )
-      .input[GitShowInput]
-      .handle: in =>
-        val detail =
-          if in.stat.getOrElse(false) then ShowDetail.StatOnly
-          else ShowDetail.Full
-        render(git.show(in.rev, in.paths.getOrElse(Nil), detail))
-    val fileAtTool = tool(FileAtSlug)
-      .description(
-        "Read one file's full contents as of a commit, e.g. to see what it " +
-          "looked like before the change under review."
-      )
-      .input[GitFileAtInput]
-      .handle(in => render(git.fileAt(in.rev, in.path)))
-    McpHost.start(List(showTool, fileAtTool), ToolTimeout)
+  def start(net: Network, git: GitTool)(using Ox): McpHost =
+    val showTool = mcp.tool[GitShowInput](
+      ShowSlug,
+      "Show a commit: its message and diff, or with stat=true just which " +
+        "files it changed. Optionally narrow the diff to specific " +
+        "repository-relative paths."
+    ): in =>
+      val detail =
+        if in.stat.getOrElse(false) then ShowDetail.StatOnly
+        else ShowDetail.Full
+      render(git.show(in.rev, in.paths.getOrElse(Nil), detail))
+    val fileAtTool = mcp.tool[GitFileAtInput](
+      FileAtSlug,
+      "Read one file's full contents as of a commit, e.g. to see what it " +
+        "looked like before the change under review."
+    )(in => render(git.fileAt(in.rev, in.path)))
+    McpHost.start(net, List(showTool, fileAtTool), ToolTimeout)
 
   /** Map a read outcome onto MCP's success/error channels. */
   private def render(
       result: Either[GitReadFailed, String]
   ): ToolResult[NoStructuredOutput] =
-    ToolResult.fromEither(result.left.map(_.getMessage))
+    mcp.fromEither(result.left.map(_.getMessage))
 
   /** System-prompt hint naming the tools. Read-only turns have no shell, so
     * without this the agent has no reason to look for them.

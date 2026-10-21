@@ -42,5 +42,6 @@ private[settings] enum AgentKey(val raw: String) extends SettingKey:
   case ReviewAgent extends AgentKey("reviewAgent")
 
 private[settings] object SettingKey:
-  val values: Array[SettingKey] = StackKey.values ++ AgentKey.values
+  val values: List[SettingKey] =
+    StackKey.values.toList ++ AgentKey.values.toList
   def fromRaw(s: String): Option[SettingKey] = values.find(_.raw == s)

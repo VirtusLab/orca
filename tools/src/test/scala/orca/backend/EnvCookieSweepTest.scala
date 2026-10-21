@@ -1,14 +1,11 @@
 package orca.backend
 
-import orca.subprocess.{EnvCookie, PipedCliProcess}
+import orca.subprocess.PipedCliProcess
 
 class EnvCookieSweepTest extends munit.FunSuite with SweepFixtures:
 
-  private def cookieOf(process: PipedCliProcess): EnvCookie =
-    process.envCookie.getOrElse(fail("spawnPiped must inject a cookie"))
-
-  private def survivorPids(cookie: EnvCookie): List[Long] =
-    EnvCookieSweep.sweep(cookie).map(_.pid)
+  private def survivorPids(process: PipedCliProcess): List[Long] =
+    process.survivors().map(_.pid)
 
   private def isAlive(pid: Long): Boolean =
     ProcessHandle.of(pid).map[Boolean](_.isAlive).orElse(false)
@@ -25,11 +22,10 @@ class EnvCookieSweepTest extends munit.FunSuite with SweepFixtures:
       // Wait so the launching shell is reaped: only the detached worker can
       // then be carrying the cookie.
       val _ = process.waitForExit()
-      val cookie = cookieOf(process)
-      assertEquals(survivorPids(cookie), List(detachedPid))
+      assertEquals(survivorPids(process), List(detachedPid))
 
       val listener = new StepRecorder
-      EnvCookieSweep.afterScope(Some(cookie), listener)
+      EnvCookieSweep.afterScope(process, listener)
       assertEquals(listener.steps.size, 1)
       assert(
         listener.steps.head.contains(detachedPid.toString),
@@ -43,7 +39,7 @@ class EnvCookieSweepTest extends munit.FunSuite with SweepFixtures:
     val decoy = spawn("echo $$; sleep 60")
     try
       val sweptPid = swept.stdoutLines.next().trim.toLong
-      assertEquals(survivorPids(cookieOf(swept)), List(sweptPid))
+      assertEquals(survivorPids(swept), List(sweptPid))
     finally
       swept.destroyForciblyTree()
       decoy.destroyForciblyTree()

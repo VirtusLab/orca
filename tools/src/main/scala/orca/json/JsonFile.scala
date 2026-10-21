@@ -1,19 +1,42 @@
 package orca.json
 
-import com.github.plokhotnyuk.jsoniter_scala.core.{
-  JsonValueCodec,
-  readFromArray,
-  writeToArray
-}
-
+import com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec
 import orca.OrcaDir
+import orca.effect.FileSystem
+import orca.safe.prelude.NonFatal
 
-import scala.util.control.NonFatal
+/** Reads whole-file JSON documents that an earlier process wrote, such as the
+  * progress log ([[JsonFile.write]]).
+  */
+final class JsonFile(fs: FileSystem):
+  import JsonFile.*
 
-/** Whole-file JSON documents that a later process reads back, such as the
-  * progress log. Each is rewritten whole on every change, so [[write]] replaces
-  * it atomically — a plain `os.write.over` torn by a kill would leave the
-  * reader unparseable content where a resume was expected.
+  def read[A](path: os.Path)(using JsonValueCodec[A]): Read[A] =
+    readBytes(path) match
+      case Left(reason)       => Read.Unreadable(reason)
+      case Right(None)        => Read.Absent
+      case Right(Some(bytes)) =>
+        decode[A](bytes).fold(Read.Corrupt(_), Read.Loaded(_))
+
+  /** The file's raw content, `None` when there is no file, `Left` with the
+    * reason when it could not be read.
+    */
+  private[orca] def readBytes(
+      path: os.Path
+  ): Either[String, Option[IArray[Byte]]] =
+    // Absence is the read's own `NoSuchFileException` rather than an
+    // `exists` pre-check, so there is no window between the two for the file
+    // to vanish in — the progress log is removed by teardown while the runtime
+    // still reads it.
+    try Right(Some(fs.readBytes(path)))
+    catch
+      case _: java.nio.file.NoSuchFileException => Right(None)
+      case NonFatal(e)                          => Left(describe(e))
+
+/** Whole-file JSON documents that a later process reads back. Each is rewritten
+  * whole on every change, so [[write]] replaces it atomically — a plain
+  * overwrite torn by a kill would leave the reader unparseable content where a
+  * resume was expected.
   */
 object JsonFile:
 
@@ -35,33 +58,11 @@ object JsonFile:
 
     case Loaded(value: A)
 
-  def read[A](path: os.Path)(using JsonValueCodec[A]): Read[A] =
-    readBytes(path) match
-      case Left(reason) => Read.Unreadable(reason)
-      case Right(None)  => Read.Absent
-      case Right(Some(bytes)) =>
-        decode[A](bytes).fold(Read.Corrupt(_), Read.Loaded(_))
-
-  /** The file's raw content, `None` when there is no file, `Left` with the
-    * reason when it could not be read.
-    */
-  private[orca] def readBytes(
-      path: os.Path
-  ): Either[String, Option[IArray[Byte]]] =
-    // Absence is the read's own `NoSuchFileException` rather than an
-    // `os.exists` pre-check, so there is no window between the two for the
-    // file to vanish in — the progress log is removed by teardown while the
-    // runtime still reads it.
-    try Right(Some(IArray.unsafeFromArray(os.read.bytes(path))))
-    catch
-      case _: java.nio.file.NoSuchFileException => Right(None)
-      case NonFatal(e)                          => Left(describe(e))
-
   /** `bytes` as an `A`, or why they do not parse. */
   private[orca] def decode[A](bytes: IArray[Byte])(using
       JsonValueCodec[A]
   ): Either[String, A] =
-    try Right(readFromArray[A](IArray.genericWrapArray(bytes).toArray))
+    try Right(JsonCodec.readBytes[A](bytes))
     catch case NonFatal(e) => Left(describe(e))
 
   /** Replace `file`'s contents with `value`'s JSON, atomically (see
@@ -70,7 +71,7 @@ object JsonFile:
   private[orca] def write[A](file: OrcaDir.OrcaFile, value: A)(using
       JsonValueCodec[A]
   ): Unit =
-    file.replace(writeToArray(value))
+    file.replace(JsonCodec.writeBytes(value))
 
   /** A one-line account of `e` for a warning: its class and the first line of
     * its message. jsoniter appends a multi-line hex dump of the buffer to its

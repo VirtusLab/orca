@@ -2,6 +2,7 @@ package orca
 
 import orca.agents.SessionKey
 import orca.gitref.CommitHash
+import orca.safe.{Ref, concurrency}
 
 /** Where a turn sits in this attempt's use of one durable conversation. Minted
   * by [[StageFrames.claimTurn]].
@@ -49,15 +50,19 @@ private[orca] enum SessionTurn:
   *     and misattribute a stale or wrong-typed record.
   *
   * Thread-affine: reached only through [[FlowControl]], single-threaded per
-  * top-level `flow(...)` (R12, ADR 0018 §2.2), so plain vars state the real
-  * invariant. `ownerThread` (captured at construction) is asserted on every
-  * door that touches them, so a stray call from an `ox.fork` — always a fresh
-  * thread on the pinned ox 1.0.8 — throws instead of silently corrupting the
-  * frame stack / counters. Ox runs a `supervised:` block's own body on a fresh
-  * fork too, so `stage(...)` from the direct body of a user-opened nested scope
-  * is rejected just like an explicit `fork`. Production is unaffected:
-  * `runFlow` constructs the context inside the same `supervised:` body that
-  * runs the flow, so owner and body thread coincide.
+  * top-level `flow(...)` (R12, ADR 0018 §2.2). The state lives in [[Ref]]s only
+  * because safe mode rejects `var` fields; the owner-thread assert, not the
+  * `Ref`, is what keeps it consistent. An actor would move every stage call
+  * onto another thread, and `caps.Stateful` would make `FlowControl^` reach
+  * dozens of signatures for no check the assert doesn't already make.
+  * `ownerThread` (captured at construction) is asserted on every door that
+  * touches the state, so a stray call from an `ox.fork` — always a fresh thread
+  * on the pinned ox 1.0.8 — throws instead of silently corrupting the frame
+  * stack / counters. Ox runs a `supervised:` block's own body on a fresh fork
+  * too, so `stage(...)` from the direct body of a user-opened nested scope is
+  * rejected just like an explicit `fork`. Production is unaffected: `runFlow`
+  * constructs the context inside the same `supervised:` body that runs the
+  * flow, so owner and body thread coincide.
   *
   * '''This is the only enforcement of R12 for user flow scripts.''' The
   * capture/separation checking enforcement (ADR 0018 §6) catches a
@@ -69,11 +74,12 @@ private[orca] enum SessionTurn:
   * assert can.
   */
 private[orca] trait StageFrames:
-  private val ownerThread: Thread = Thread.currentThread()
+  private val ownerThread: concurrency.ThreadIdentity =
+    concurrency.currentThread()
 
   /** Throws when called off `ownerThread` (R12 — see the trait scaladoc). */
   private def assertOwnerThread(what: String): Unit =
-    if Thread.currentThread() ne ownerThread then
+    if concurrency.currentThread() != ownerThread then
       throw new OrcaFlowException(
         s"$what called from a fork — forks get FlowContext only (ADR 0018 R12)"
       )
@@ -82,19 +88,19 @@ private[orca] trait StageFrames:
     * commit the stage started from, and the per-name occurrence counters for
     * stages nested directly beneath it.
     */
-  private final class Frame(
-      val path: StagePath,
-      val baseCommit: Option[CommitHash]
+  private final case class Frame(
+      path: StagePath,
+      baseCommit: Option[CommitHash],
+      counts: Map[String, Int] = Map.empty
   ):
-    private var counts: Map[String, Int] = Map.empty
-    def next(name: String): Int =
+    /** This frame with `name`'s counter bumped, and its value before. */
+    def next(name: String): (Frame, Int) =
       val n = counts.getOrElse(name, 0)
-      counts = counts.updated(name, n + 1)
-      n
+      (copy(counts = counts.updated(name, n + 1)), n)
 
   // The flow body's frame; it is never popped.
-  private var frames: List[Frame] =
-    List(new Frame(path = StagePath.FlowBody, baseCommit = None))
+  private val frames: Ref[List[Frame]] =
+    Ref(List(Frame(path = StagePath.FlowBody, baseCommit = None)))
 
   /** Run `f` with a stage named `name` open, passing its path: bump the current
     * frame's occurrence counter for `name` and push a child frame recording
@@ -107,21 +113,24 @@ private[orca] trait StageFrames:
       baseCommit: StagePath.Stage => Option[CommitHash]
   )(f: StagePath.Stage => R): R =
     assertOwnerThread("stage(...)")
-    val enclosing = frames
-    val path = enclosing.head.path.child(name, enclosing.head.next(name))
-    frames = new Frame(path = path, baseCommit = baseCommit(path)) :: enclosing
+    val (bumped, n) = frames.get.head.next(name)
+    val enclosing = bumped :: frames.get.tail
+    // Stored before `baseCommit` runs, so the bump survives it throwing.
+    frames.set(enclosing)
+    val path = bumped.path.child(name, n)
+    frames.set(Frame(path = path, baseCommit = baseCommit(path)) :: enclosing)
     try f(path)
-    finally frames = enclosing
+    finally frames.set(enclosing)
 
-  def stageBaseCommit: Option[CommitHash] = frames.head.baseCommit
+  def stageBaseCommit: Option[CommitHash] = frames.get.head.baseCommit
 
   /** Throws unless no stage is open: `what` runs stages of its own and belongs
     * at the flow body's top level, whatever helper it is called through.
     */
   private[orca] def assertAtFlowBody(what: String): Unit =
     assertOwnerThread(what)
-    frames.head.path match
-      case StagePath.FlowBody => ()
+    frames.get.head.path match
+      case StagePath.FlowBody     => ()
       case stage: StagePath.Stage =>
         throw new OrcaFlowException(
           s"$what called inside stage '${stage.display}' — call it at the flow " +
@@ -130,7 +139,7 @@ private[orca] trait StageFrames:
 
   // The stage half of a key already scopes it, so one flat set covers the
   // attempt.
-  private var claimedSessionKeys: Set[SessionKey] = Set.empty
+  private val claimedSessionKeys: Ref[Set[SessionKey]] = Ref(Set.empty)
 
   /** Key a session named `name` to the stage currently open — the flow body
     * when there is none — and record the mint, rejecting a second mint of the
@@ -154,9 +163,9 @@ private[orca] trait StageFrames:
     */
   private[orca] def claimSessionKey(name: String): SessionKey =
     assertOwnerThread("agent.session(...)")
-    val frame = frames.head
+    val frame = frames.get.head
     val key = SessionKey(name = name, stage = frame.path)
-    if claimedSessionKeys.contains(key) then
+    if claimedSessionKeys.get.contains(key) then
       val where = frame.path match
         case StagePath.FlowBody     => "the flow body"
         case stage: StagePath.Stage => s"stage '${stage.display}'"
@@ -165,12 +174,12 @@ private[orca] trait StageFrames:
           "would drive one conversation. Give each its own `stage(...)`, or " +
           "rename one of them."
       )
-    claimedSessionKeys = claimedSessionKeys + key
+    claimedSessionKeys.update(_ + key)
     key
 
   // A session id is unique across the run, so one flat set covers it as the
   // key set above covers keys.
-  private var drivenSessions: Set[String] = Set.empty
+  private val drivenSessions: Ref[Set[String]] = Ref(Set.empty)
 
   /** Claim `sessionId`'s next turn: [[SessionTurn.First]] exactly once per
     * conversation per attempt, [[SessionTurn.Later]] after that.
@@ -181,7 +190,8 @@ private[orca] trait StageFrames:
     */
   private[orca] def claimTurn(sessionId: String): SessionTurn =
     assertOwnerThread("session.run(...)")
-    if drivenSessions.contains(sessionId) then SessionTurn.Later
-    else
-      drivenSessions = drivenSessions + sessionId
-      SessionTurn.First
+    drivenSessions.modify: driven =>
+      val turn =
+        if driven.contains(sessionId) then SessionTurn.Later
+        else SessionTurn.First
+      (driven + sessionId, turn)

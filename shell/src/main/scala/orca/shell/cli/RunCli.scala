@@ -73,7 +73,7 @@ private[cli] object RunCli:
     prompt match
       case Some(text) if text.trim.nonEmpty => Right(text.trim)
       case Some(_)                          => Left("prompt can't be empty")
-      case None =>
+      case None                             =>
         if tty then
           Left(
             "no prompt given, and stdin is a terminal — " +

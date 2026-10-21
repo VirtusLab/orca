@@ -67,7 +67,7 @@ class FlowAuthoringTest extends munit.FunSuite:
     assert(text.contains("\n  | mode | effect |"), text)
 
   test("initialPrompt states the verbatim version-pinned header"):
-    assert(prompt.contains("//> using scala 3.9.0"))
+    assert(prompt.contains("//> using scala 3.10.0"))
     assert(prompt.contains("""//> using dep "org.virtuslab::orca:0.0.18""""))
     assert(prompt.contains("//> using jvm 21"))
 
@@ -649,7 +649,7 @@ class FlowAuthoringTest extends munit.FunSuite:
     )
     result match
       case Left(message) => assert(message.contains("already exists"))
-      case Right(path) =>
+      case Right(path)   =>
         fail(s"expected a collision refusal, got Right($path)")
 
   // --- create/fork filename guard: no path separators (security review) ---
@@ -685,7 +685,7 @@ class FlowAuthoringTest extends munit.FunSuite:
 
   test("skeletonFlow states the same version pins as initialPrompt"):
     val skeleton = FlowAuthoring.skeletonFlow(release)
-    assert(skeleton.contains("//> using scala 3.9.0"))
+    assert(skeleton.contains("//> using scala 3.10.0"))
     assert(skeleton.contains("""//> using dep "org.virtuslab::orca:0.0.18""""))
     assert(skeleton.contains("//> using jvm 21"))
 

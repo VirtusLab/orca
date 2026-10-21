@@ -1,5 +1,9 @@
 package orca.util
 
+import orca.safe.Logger
+
+import scala.util.Properties.envOrNone
+
 /** One place that knows which `ORCA_*` debug environment variables exist. The
   * flags are read once at object initialization, so the booleans are safe to
   * pin in cold paths.
@@ -13,17 +17,17 @@ private[orca] object OrcaDebug:
   /** `ORCA_DEBUG=1` — print full JVM stack traces on errors that the stage
     * machinery would otherwise format. Read by [[orca.flow]].
     */
-  val enabled: Boolean = sys.env.get("ORCA_DEBUG").contains("1")
+  val enabled: Boolean = envOrNone("ORCA_DEBUG").contains("1")
 
   /** `ORCA_DEBUG_STREAM=1` — dump every inbound NDJSON / JSONL line from the
     * agent subprocess to the parent's stderr before parsing. Read by
     * [[orca.backend.DecodedTurn]] and the decoders.
     */
-  val streamTrace: Boolean = sys.env.get("ORCA_DEBUG_STREAM").contains("1")
+  val streamTrace: Boolean = envOrNone("ORCA_DEBUG_STREAM").contains("1")
 
   /** Prints one raw line of a backend's `stream` to stderr under
     * [[streamTrace]].
     */
   def traceStream(backendName: String, stream: String, line: String): Unit =
     if streamTrace then
-      System.err.println(s"[orca-debug $backendName-$stream] $line")
+      Logger.stderr(s"[orca-debug $backendName-$stream] $line")

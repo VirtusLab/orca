@@ -1,5 +1,6 @@
 package orca.backend.codex
 
+import orca.effect.{FileSystem, Network}
 import orca.testkit.OpenTurn
 import orca.backend.{SupervisedBackend, SystemPromptComposer}
 import orca.agents.{
@@ -25,7 +26,15 @@ class CodexBackendTest extends munit.FunSuite:
       workDir: os.Path = os.pwd
   )(
       body: ox.Ox ?=> CodexBackend => T
-  ): T = SupervisedBackend.using(new CodexBackend(runner, workDir = workDir))(
+  ): T = SupervisedBackend.using(
+    new CodexBackend(
+      Network.ambient,
+      FileSystem.ambient,
+      runner,
+      sessionProbe = _ => false,
+      workDir = workDir
+    )
+  )(
     body
   )
 
@@ -472,7 +481,13 @@ class CodexBackendTest extends munit.FunSuite:
     val tmpSessions = TempDirs.dir()
     os.write(tmpSessions / s"rollout-2024-01-01-$serverId.jsonl", "")
     SupervisedBackend.using(
-      new CodexBackend(new SpawnStubCliRunner(Nil), tmpSessions)
+      new CodexBackend(
+        Network.ambient,
+        FileSystem.ambient,
+        new SpawnStubCliRunner(Nil),
+        CodexBackend.rolloutProbe(FileSystem.ambient, tmpSessions),
+        workDir = os.pwd
+      )
     ): backend =>
       backend.sessions.rehydrate(
         clientSid,
@@ -492,7 +507,13 @@ class CodexBackendTest extends munit.FunSuite:
       ""
     )
     SupervisedBackend.using(
-      new CodexBackend(new SpawnStubCliRunner(Nil), tmpSessions)
+      new CodexBackend(
+        Network.ambient,
+        FileSystem.ambient,
+        new SpawnStubCliRunner(Nil),
+        CodexBackend.rolloutProbe(FileSystem.ambient, tmpSessions),
+        workDir = os.pwd
+      )
     ): backend =>
       assertEquals(
         backend.sessions.dispatchFor(clientSid).asTurnDispatch,
@@ -502,7 +523,13 @@ class CodexBackendTest extends munit.FunSuite:
   test("a rehydrated id opens fresh when no matching file exists"):
     val tmpSessions = TempDirs.dir()
     SupervisedBackend.using(
-      new CodexBackend(new SpawnStubCliRunner(Nil), tmpSessions)
+      new CodexBackend(
+        Network.ambient,
+        FileSystem.ambient,
+        new SpawnStubCliRunner(Nil),
+        CodexBackend.rolloutProbe(FileSystem.ambient, tmpSessions),
+        workDir = os.pwd
+      )
     ): backend =>
       backend.sessions.rehydrate(
         clientSid,
@@ -516,7 +543,13 @@ class CodexBackendTest extends munit.FunSuite:
   test("a rehydrated id opens fresh when the sessions dir is absent"):
     val missing = TempDirs.dir() / "no-such-sessions"
     SupervisedBackend.using(
-      new CodexBackend(new SpawnStubCliRunner(Nil), missing)
+      new CodexBackend(
+        Network.ambient,
+        FileSystem.ambient,
+        new SpawnStubCliRunner(Nil),
+        CodexBackend.rolloutProbe(FileSystem.ambient, missing),
+        workDir = os.pwd
+      )
     ): backend =>
       backend.sessions.rehydrate(
         clientSid,

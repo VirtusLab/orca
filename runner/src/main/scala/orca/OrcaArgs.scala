@@ -28,11 +28,14 @@ case class OrcaArgs(
       case RunTarget.NewBranch(Uncommitted.Stash)     => Nil
       case RunTarget.NewBranch(Uncommitted.Keep)      => Seq("--keep-changes")
       case RunTarget.CurrentBranch(Uncommitted.Stash) => Seq("--skip-branch")
-      case RunTarget.CurrentBranch(Uncommitted.Keep) =>
+      case RunTarget.CurrentBranch(Uncommitted.Keep)  =>
         Seq("--skip-branch", "--keep-changes")
       case RunTarget.Worktree => Seq("--worktree")
     val branchArgv = branch.toList.flatMap(name => Seq("--branch", name.value))
     promptArgv ++ verboseArgv ++ targetArgv ++ branchArgv
+
+  private[orca] def setupRequest: lifecycle.SetupRequest =
+    lifecycle.SetupRequest(userPrompt, target, branch)
 
 object OrcaArgs:
 

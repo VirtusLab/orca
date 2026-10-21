@@ -1,10 +1,13 @@
 package orca.backend.pi
 
+import orca.effect.FileSystem
 import orca.testkit.TempDirs
 
 import java.time.Instant
 
 class PiSessionStoreTest extends munit.FunSuite:
+
+  private val store = PiSessionStore(FileSystem.ambient)
 
   test(
     "dirFor places a session under .orca/cache/pi-sessions, creating nothing"
@@ -36,7 +39,7 @@ class PiSessionStoreTest extends munit.FunSuite:
     val workDir = TempDirs.dir()
     val dir = sessionDir(workDir)
     os.write(dir / "session.jsonl", header(workDir))
-    assert(PiSessionStore.resumable(dir, workDir, Instant.now()))
+    assert(store.resumable(dir, workDir, Instant.now()))
 
   test("not resumable when the header cwd names a different checkout"):
     // pi's `--continue` filters transcripts by header cwd and would silently
@@ -44,21 +47,21 @@ class PiSessionStoreTest extends munit.FunSuite:
     val workDir = TempDirs.dir()
     val dir = sessionDir(workDir)
     os.write(dir / "session.jsonl", header(TempDirs.dir()))
-    assert(!PiSessionStore.resumable(dir, workDir, Instant.now()))
+    assert(!store.resumable(dir, workDir, Instant.now()))
 
   test("not resumable when the transcript has no parseable session header"):
     val workDir = TempDirs.dir()
     val dir = sessionDir(workDir)
     os.write(dir / "session.jsonl", "{}\n")
-    assert(!PiSessionStore.resumable(dir, workDir, Instant.now()))
+    assert(!store.resumable(dir, workDir, Instant.now()))
 
   test("not resumable when the dir holds only non-transcript files"):
     val workDir = TempDirs.dir()
     val dir = sessionDir(workDir)
     os.write(dir / "notes.txt", "x")
-    assert(!PiSessionStore.resumable(dir, workDir, Instant.now()))
+    assert(!store.resumable(dir, workDir, Instant.now()))
 
   test("not resumable when the dir isn't there"):
     val workDir = TempDirs.dir()
     val dir = PiSessionStore.dirFor(workDir, "a-session").get
-    assert(!PiSessionStore.resumable(dir, workDir, Instant.now()))
+    assert(!store.resumable(dir, workDir, Instant.now()))

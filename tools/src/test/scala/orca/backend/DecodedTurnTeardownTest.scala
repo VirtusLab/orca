@@ -2,6 +2,7 @@ package orca.backend
 
 import orca.AgentTurnFailed
 import orca.agents.{BackendTag, WireSessionId}
+import orca.effect.Processes
 import orca.events.{TurnDebit, Usage}
 import orca.subprocess.{OsProcCliRunner, PipedCliProcess}
 import orca.testkit.ProcessProbe.{alive, awaitDead}
@@ -60,7 +61,7 @@ class DecodedTurnTeardownTest extends munit.FunSuite:
       check: (LiveTurn[BackendTag.ClaudeCode.type], Long) => Unit
   ): Unit =
     supervised:
-      val process = OsProcCliRunner.spawnPiped(
+      val process = OsProcCliRunner(Processes.ambient).spawnPiped(
         Seq("bash", "-c", script),
         env = Map.empty,
         cwd = os.pwd

@@ -3,8 +3,7 @@ package orca
 import orca.agents.Agent
 import orca.tools.IssueHandle
 
-import java.nio.charset.StandardCharsets
-import java.security.MessageDigest
+import orca.safe.prelude.{UTF_8, sha256}
 
 /** Strategy that produces a git-ref-safe feature-branch name. Resolved once per
   * flow run, inside a stage (the `InStage` token gates the call).
@@ -72,7 +71,7 @@ object BranchNamingStrategy:
     * ignores `userPrompt` and `agent`; `text` is evaluated once per `resolve`
     * call (by-name for callers that want late binding).
     */
-  def fromText(text: => String): BranchNamingStrategy =
+  def fromText(text: => String): BranchNamingStrategy^{text} =
     new BranchNamingStrategy:
       def resolve(userPrompt: String, agent: Agent[?])(using InStage): String =
         slug(text)
@@ -123,8 +122,6 @@ object BranchNamingStrategy:
     * blank) so the name is stable across calls with the same input.
     */
   private def fallback(text: String): String =
-    val bytes = MessageDigest
-      .getInstance("SHA-256")
-      .digest(text.getBytes(StandardCharsets.UTF_8))
+    val bytes = sha256(text.getBytes(UTF_8))
     val hex = bytes.map("%02x".format(_)).mkString.take(8)
     s"flow-$hex"

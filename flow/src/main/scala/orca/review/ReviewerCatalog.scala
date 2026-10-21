@@ -1,6 +1,7 @@
 package orca.review
 
 import orca.OrcaFlowException
+import orca.effect.FileSystem
 import orca.discovery.{Origin, TierPrecedence, TierWinner}
 import orca.util.TextUtil
 
@@ -89,12 +90,17 @@ object ReviewerCatalog:
     * does not cover a symlinked tier directory.
     */
   private[orca] def discover(
+      fs: FileSystem,
       projectDir: os.Path,
       globalDir: os.Path
   ): ReviewerCatalog =
     val scans = List(
-      ReviewerFileTier.Project -> scan(projectDir, ReviewerFileTier.Project),
-      ReviewerFileTier.Global -> scan(globalDir, ReviewerFileTier.Global)
+      ReviewerFileTier.Project -> scan(
+        fs,
+        projectDir,
+        ReviewerFileTier.Project
+      ),
+      ReviewerFileTier.Global -> scan(fs, globalDir, ReviewerFileTier.Global)
     )
     val (parseFailures, discovered) = TierPrecedence
       .resolve(scans.map((tier, s) => tier -> s.files))
@@ -171,22 +177,26 @@ object ReviewerCatalog:
     * legitimate is a directory named `*.md`, and skipping one would leave the
     * slug missing from the roster with nothing said.
     */
-  private def scan(dir: os.Path, tier: ReviewerFileTier): ReviewerScan =
-    if !os.isDir(dir) then ReviewerScan(Nil, Map.empty)
+  private def scan(
+      fs: FileSystem,
+      dir: os.Path,
+      tier: ReviewerFileTier
+  ): ReviewerScan =
+    if !fs.isDir(dir) then ReviewerScan(Nil, Map.empty)
     else
       val candidates =
-        os.list(dir).filter(_.last.endsWith(".md")).filterNot(isDocument)
+        fs.list(dir).filter(_.last.endsWith(".md")).filterNot(isDocument)
       // `os.isLink` is lstat/no-follow, so this catches a dangling link too.
       val (linked, plain) =
-        if tier == ReviewerFileTier.Project then candidates.partition(os.isLink)
+        if tier == ReviewerFileTier.Project then candidates.partition(fs.isLink)
         else (IndexedSeq.empty, candidates)
       // After the symlink split, so a project-tier link to a directory keeps
       // the more specific `Symlinked` message. `os.isDir` follows links, which
       // is what catches a global-tier link to a directory; it is false for a
       // dangling link, so that one still surfaces as unreadable.
-      val (directories, files) = plain.partition(os.isDir)
+      val (directories, files) = plain.partition(fs.isDir)
       val (readFailures, parsed) =
-        files.map(read).toList.partitionMap(identity)
+        files.map(read(fs, _)).toList.partitionMap(identity)
       val (collisions, unique) = parsed
         .groupBy(f => stemOf(f.path))
         .partitionMap:
@@ -214,9 +224,10 @@ object ReviewerCatalog:
     * with no target, a permission error — is a failure, not an absence.
     */
   private def read(
+      fs: FileSystem,
       path: os.Path
   ): Either[ReviewerPromptFailure, ReviewerFile] =
-    try Right(ReviewerFile(path, ParsedPrompt.parse(os.read(path))))
+    try Right(ReviewerFile(path, ParsedPrompt.parse(fs.read(path))))
     catch
       case e: java.io.IOException =>
         Left(

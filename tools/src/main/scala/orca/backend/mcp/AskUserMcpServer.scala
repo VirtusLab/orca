@@ -1,16 +1,17 @@
 package orca.backend.mcp
 
-import chimp.server.*
-import io.circe.Codec
+import orca.effect.Network
+import orca.json.JsonData
+import orca.safe.mcp
 import ox.Ox
-import sttp.tapir.Schema
+import orca.safe.prelude.DurationInt
 
-import scala.concurrent.duration.{DurationInt, FiniteDuration}
+import scala.concurrent.duration.FiniteDuration
 
 /** Input shape of the `ask_user` MCP tool: the agent fills in `question` and
   * gets the typed answer back as the tool result.
   */
-private[mcp] case class AskUserInput(question: String) derives Codec, Schema
+private[mcp] case class AskUserInput(question: String) derives JsonData
 
 /** The `ask_user` MCP tool: each invocation enqueues the question on an
   * [[AskUserBridge]] and blocks until the host supplies an answer.
@@ -43,16 +44,12 @@ private[backend] object AskUserMcpServer:
   /** Mount the `ask_user` tool on a fresh [[McpHost]]. The handler blocks until
     * the host user types an answer, which is why [[ToolTimeout]] is an hour.
     */
-  def start(bridge: AskUserBridge)(using Ox): McpHost =
-    val askUserTool =
-      tool(AskUserMcpServer.ToolSlug)
-        .description(
-          "Ask the host user a clarifying question and receive their " +
-            "typed answer."
-        )
-        .input[AskUserInput]
-        .handle(in => ToolResult.text(bridge.ask(in.question)))
-    McpHost.start(List(askUserTool), ToolTimeout)
+  def start(net: Network, bridge: AskUserBridge)(using Ox): McpHost =
+    val askUserTool = mcp.tool[AskUserInput](
+      AskUserMcpServer.ToolSlug,
+      "Ask the host user a clarifying question and receive their typed answer."
+    )(in => mcp.text(bridge.ask(in.question)))
+    McpHost.start(net, List(askUserTool), ToolTimeout)
 
   /** Short system-prompt hint telling the agent it has an `ask_user` tool for
     * clarifying questions. Worded conservatively — agents over-use tools

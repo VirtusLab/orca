@@ -1,20 +1,156 @@
 package orca
 
+import orca.effect.FileSystem
+import orca.safe.prelude.{*, given}
 import orca.util.AtomicFile
-import ox.tap
 
-import java.nio.charset.StandardCharsets
-
-/** Layout of the `.orca/` directory (ADR 0019): committed project metadata
-  * lives at the root, ephemeral state lives under `cache/`, which self-ignores
-  * via its own `.gitignore` and carries a `CACHEDIR.TAG` so backup tools skip
-  * it. All `.orca` creation routes through this object, so the exclusion
-  * markers are always in place before anything is written into the cache. Whole
-  * files are written through an [[OrcaFile]], which only this object creates.
+/** Creates and guards the `.orca/` directory (ADR 0019): committed project
+  * metadata lives at the root, ephemeral state lives under `cache/`, which
+  * self-ignores via its own `.gitignore` and carries a `CACHEDIR.TAG` so backup
+  * tools skip it. All `.orca` creation routes through this class, so the
+  * exclusion markers are always in place before anything is written into the
+  * cache. Whole files are written through an [[OrcaDir.OrcaFile]], which only
+  * this class creates. The companion names the paths, without touching the
+  * filesystem.
   *
   * `worktrees/` is the one root entry that is not committed: it self-ignores
   * like the cache but is not disposable like it — see [[ensureWorktrees]].
   */
+private[orca] final class OrcaDir(fs: FileSystem):
+  import OrcaDir.*
+
+  /** Idempotently ensure `.orca/` exists and return it. */
+  def ensureRoot(workDir: os.Path): os.Path =
+    ensureDir(workDir, rootPath(workDir))
+
+  /** Idempotently ensure `.orca/cache/` exists, writing its self-ignoring
+    * `.gitignore` and `CACHEDIR.TAG` before returning so nothing lands in the
+    * dir before the exclusion is in place. Markers are written only when
+    * absent, so repeated calls do not churn mtimes.
+    */
+  def ensureCache(workDir: os.Path): os.Path =
+    ensureDir(workDir, cachePath(workDir)).tap: cache =>
+      writeIfAbsent(cache / ".gitignore", gitignoreContents)
+      writeIfAbsent(cache / "CACHEDIR.TAG", cachedirTagContents)
+
+  /** Idempotently ensure [[runDirPath]] exists, with the cache markers in
+    * place, and return it.
+    */
+  def ensureRunDir(workDir: os.Path, key: RunKey): os.Path =
+    ensureCacheDir(workDir, runDirPath(workDir, key))
+
+  /** [[ensureRunDir]], then [[eventLogPath]] for appending; refuses a symlinked
+    * event log as well as a symlinked directory.
+    */
+  def ensureEventLog(workDir: os.Path, key: RunKey): os.Path =
+    val _ = ensureRunDir(workDir, key)
+    eventLogPath(workDir, key).tap(abortIfOrcaComponentSymlink(workDir, _))
+
+  /** Idempotently ensure `.orca/cache/pi-sessions/` exists and return it, for
+    * the write side (spawning pi at a session dir under it).
+    */
+  def ensurePiSessions(workDir: os.Path): os.Path =
+    ensureCacheDir(workDir, piSessionsPath(workDir))
+
+  /** Idempotently ensure `.orca/worktrees/` exists, writing its self-ignoring
+    * `.gitignore` before returning: without the marker, `git add -A` in this
+    * checkout stages a worktree under it as an embedded git repository, so the
+    * marker must be in place before the first worktree is created.
+    *
+    * Unlike [[ensureCache]] there is deliberately no `CACHEDIR.TAG` — the tag
+    * tells backup tools to skip the directory, and a worktree holds unmerged
+    * work plus the only copy of the progress log that resumes a failed run.
+    */
+  def ensureWorktrees(workDir: os.Path): os.Path =
+    ensureDir(workDir, worktreesPath(workDir)).tap: worktrees =>
+      writeIfAbsent(worktrees / ".gitignore", gitignoreContents)
+
+  /** Idempotently ensure `.orca/flows/` exists and return it. */
+  def ensureFlows(workDir: os.Path): os.Path =
+    ensureDir(workDir, flowsPath(workDir))
+
+  /** The project settings file, cleared for writing. */
+  def settingsFile(workDir: os.Path): OrcaFile =
+    committedFile(workDir, settingsPath(workDir))
+
+  /** The progress log of the run keyed `key`, cleared for writing. */
+  def progressFile(workDir: os.Path, key: RunKey): OrcaFile =
+    committedFile(workDir, progressPath(workDir, key))
+
+  /** `file`, committed with the rest of `.orca`'s root. */
+  private def committedFile(workDir: os.Path, file: os.Path): OrcaFile =
+    OrcaFile(
+      ensureDir(workDir, file / up) / file.last,
+      ensureCache(workDir),
+      fs
+    )
+
+  /** Idempotently create `dir` under `.orca`, refusing to write through a
+    * symlinked component.
+    */
+  private def ensureDir(workDir: os.Path, dir: os.Path): os.Path =
+    abortIfOrcaComponentSymlink(workDir, dir)
+    dir.tap(fs.makeDirs)
+
+  /** [[ensureDir]] for a directory under `.orca/cache`, with the cache's
+    * exclusion markers in place first.
+    */
+  private def ensureCacheDir(workDir: os.Path, dir: os.Path): os.Path =
+    val _ = ensureCache(workDir)
+    ensureDir(workDir, dir)
+
+  /** Read-only counterpart to [[abortIfOrcaComponentSymlink]], for callers that
+    * only need to verify before reading (e.g. flow discovery) and must not
+    * create `.orca` as a side effect. A no-op when there is no `.orca` entry —
+    * nothing to guard, and discovery already tolerates a missing tier
+    * directory.
+    */
+  def assertNoOrcaSymlinks(workDir: os.Path, dir: os.Path): Unit =
+    if fs.entryExists(rootPath(workDir)) then
+      abortIfOrcaComponentSymlink(workDir, dir)
+
+  /** Refuse if `.orca` — or any orca-created directory from it down to `dir`
+    * (inclusive) — is a symlink, before any directory creation or write through
+    * it. A committed symlink at any component (git mode 120000) would redirect
+    * orca's writes to the link's target, outside the working tree. Each segment
+    * is checked on its own because `isLink` (lstat, no-follow) inspects only
+    * the final component, so a symlinked ancestor would be invisible to a
+    * leaf-only check; the no-follow also catches a dangling final link.
+    *
+    * Accepted residual (TOCTOU): a purely LOCAL race could swap a plain
+    * component for a symlink between the check and the write. Out of scope
+    * under the committed-repo-symlink threat model, so left open deliberately.
+    */
+  private def abortIfOrcaComponentSymlink(
+      workDir: os.Path,
+      dir: os.Path
+  ): Unit =
+    val r = rootPath(workDir)
+    // Every path segment from `.orca` down to `dir`, inclusive, walking up from
+    // `dir` so the check order is root-first.
+    @scala.annotation.tailrec
+    def componentsUpTo(p: os.Path, acc: List[os.Path]): List[os.Path] =
+      if p == r then r :: acc
+      else componentsUpTo(p / up, p :: acc)
+    componentsUpTo(dir, Nil).foreach: component =>
+      if fs.isLink(component) then
+        throw new OrcaFlowException(
+          s"$component is a symlink — refusing to create or write through it " +
+            "(a committed symlink at or below .orca could redirect orca's " +
+            "writes outside the working tree)"
+        )
+
+  // On first-ever cache creation two processes can both see the file absent
+  // before the flow lock exists to serialize them; the loser's `writeNew`
+  // (CREATE_NEW) throws. Both writers carry identical contents, so losing the
+  // race is harmless.
+  private def writeIfAbsent(path: os.Path, contents: String): Unit =
+    if !fs.exists(path) then
+      try fs.writeNew(path, contents)
+      catch
+        case _: java.nio.file.FileAlreadyExistsException =>
+          () // lost the create race; content is identical
+
 private[orca] object OrcaDir:
   private val gitignoreContents = "# Automatically created by orca.\n*\n"
 
@@ -63,16 +199,12 @@ private[orca] object OrcaDir:
   /** Repo-relative form of the settings path, for git probes that take a path
     * relative to the repository root.
     */
-  val settingsSubPath: os.SubPath = os.sub / Name / "settings.properties"
+  val settingsSubPath: os.SubPath = sub / Name / "settings.properties"
 
   /** `<workDir>/.orca/settings.properties` (ADR 0019), for the read side.
     * [[settingsFile]] is the write-side counterpart.
     */
   def settingsPath(workDir: os.Path): os.Path = workDir / settingsSubPath
-
-  /** The project settings file, cleared for writing. */
-  def settingsFile(workDir: os.Path): OrcaFile =
-    committedFile(workDir, settingsPath(workDir))
 
   /** `<workDir>/.orca/runs`, passively — the committed directory of the per-run
     * progress logs, for the read side (`ProgressScan`'s listing), which must
@@ -87,17 +219,9 @@ private[orca] object OrcaDir:
   def progressPath(workDir: os.Path, key: RunKey): os.Path =
     runsPath(workDir) / s"${key.value}$ProgressLogSuffix"
 
-  /** The progress log of the run keyed `key`, cleared for writing. */
-  def progressFile(workDir: os.Path, key: RunKey): OrcaFile =
-    committedFile(workDir, progressPath(workDir, key))
-
   /** Whether `file` is named like a progress log under [[runsPath]]. */
   def isProgressLog(file: os.Path): Boolean =
     file.last.endsWith(ProgressLogSuffix)
-
-  /** Idempotently ensure `.orca/` exists and return it. */
-  def ensureRoot(workDir: os.Path): os.Path =
-    ensureDir(workDir, rootPath(workDir))
 
   /** `<workDir>/.orca/cache`, passively — for callers that only need the path
     * (a file to delete, an argument to hand a subprocess) and must not create
@@ -126,12 +250,6 @@ private[orca] object OrcaDir:
   def runDirPath(workDir: os.Path, key: RunKey): os.Path =
     cacheRunsPath(workDir) / key.value
 
-  /** Idempotently ensure [[runDirPath]] exists, with the cache markers in
-    * place, and return it.
-    */
-  def ensureRunDir(workDir: os.Path, key: RunKey): os.Path =
-    ensureCacheDir(workDir, runDirPath(workDir, key))
-
   /** File name of a run's event log inside [[runDirPath]]. */
   val EventLogName: String = "events.jsonl"
 
@@ -140,23 +258,6 @@ private[orca] object OrcaDir:
     */
   def eventLogPath(workDir: os.Path, key: RunKey): os.Path =
     runDirPath(workDir, key) / EventLogName
-
-  /** [[ensureRunDir]], then [[eventLogPath]] for appending; refuses a symlinked
-    * event log as well as a symlinked directory.
-    */
-  def ensureEventLog(workDir: os.Path, key: RunKey): os.Path =
-    val _ = ensureRunDir(workDir, key)
-    eventLogPath(workDir, key).tap(abortIfOrcaComponentSymlink(workDir, _))
-
-  /** Idempotently ensure `.orca/cache/` exists, writing its self-ignoring
-    * `.gitignore` and `CACHEDIR.TAG` before returning so nothing lands in the
-    * dir before the exclusion is in place. Markers are written only when
-    * absent, so repeated calls do not churn mtimes.
-    */
-  def ensureCache(workDir: os.Path): os.Path =
-    ensureDir(workDir, cachePath(workDir)).tap: cache =>
-      writeIfAbsent(cache / ".gitignore", gitignoreContents)
-      writeIfAbsent(cache / "CACHEDIR.TAG", cachedirTagContents)
 
   /** `<workDir>/.orca/cache/runs/<key>/<id>.trace.log` — the trace log of
     * attempt `id` of the run keyed `key`; its rolled-over part ends in
@@ -195,29 +296,10 @@ private[orca] object OrcaDir:
   def piSessionsPath(workDir: os.Path): os.Path =
     cachePath(workDir) / "pi-sessions"
 
-  /** Idempotently ensure `.orca/cache/pi-sessions/` exists and return it, for
-    * the write side (spawning pi at a session dir under it).
-    */
-  def ensurePiSessions(workDir: os.Path): os.Path =
-    ensureCacheDir(workDir, piSessionsPath(workDir))
-
   /** `<workDir>/.orca/worktrees`, passively — a run's worktree is derived from
     * this path before anything decides whether to create it.
     */
   def worktreesPath(workDir: os.Path): os.Path = rootPath(workDir) / "worktrees"
-
-  /** Idempotently ensure `.orca/worktrees/` exists, writing its self-ignoring
-    * `.gitignore` before returning: without the marker, `git add -A` in this
-    * checkout stages a worktree under it as an embedded git repository, so the
-    * marker must be in place before the first worktree is created.
-    *
-    * Unlike [[ensureCache]] there is deliberately no `CACHEDIR.TAG` — the tag
-    * tells backup tools to skip the directory, and a worktree holds unmerged
-    * work plus the only copy of the progress log that resumes a failed run.
-    */
-  def ensureWorktrees(workDir: os.Path): os.Path =
-    ensureDir(workDir, worktreesPath(workDir)).tap: worktrees =>
-      writeIfAbsent(worktrees / ".gitignore", gitignoreContents)
 
   /** `<workDir>/.orca/flows` — project-tier flow scripts (ADR 0021 §5),
     * committed like the rest of `.orca`'s root.
@@ -229,95 +311,24 @@ private[orca] object OrcaDir:
     */
   def reviewersPath(workDir: os.Path): os.Path = rootPath(workDir) / "reviewers"
 
-  /** Idempotently ensure `.orca/flows/` exists and return it. */
-  def ensureFlows(workDir: os.Path): os.Path =
-    ensureDir(workDir, flowsPath(workDir))
-
   /** A file under `.orca/` cleared for writing: its directory exists and no
     * directory from `.orca` down to it is a symlink. Only [[OrcaDir]] creates
     * one, so a writer holding it cannot have skipped that check.
     */
   final class OrcaFile private[OrcaDir] (
       val path: os.Path,
-      stagingDir: os.Path
-  ):
+      stagingDir: os.Path,
+      fs: FileSystem
+  ) extends caps.SharedCapability:
+    // So OrcaDir's factories return `OrcaFile`, not `OrcaFile^{fs}`.
+
     /** Replace the file's content atomically ([[orca.util.AtomicFile]]). The
       * temp file of a committed file is staged in the self-ignored cache, so a
       * kill mid-write never leaves a stray file for a stage's `git add -A`.
       */
-    def replace(bytes: Array[Byte]): Unit =
-      AtomicFile.replace(path, stagingDir, bytes)
+    def replace(bytes: IArray[Byte]): Unit =
+      AtomicFile.replace(fs, path, stagingDir, bytes)
 
     /** [[replace]] with `text` in UTF-8. */
     def replace(text: String): Unit =
-      replace(text.getBytes(StandardCharsets.UTF_8))
-
-  /** `file`, committed with the rest of `.orca`'s root. */
-  private def committedFile(workDir: os.Path, file: os.Path): OrcaFile =
-    OrcaFile(ensureDir(workDir, file / os.up) / file.last, ensureCache(workDir))
-
-  /** Idempotently create `dir` under `.orca`, refusing to write through a
-    * symlinked component.
-    */
-  private def ensureDir(workDir: os.Path, dir: os.Path): os.Path =
-    abortIfOrcaComponentSymlink(workDir, dir)
-    dir.tap(os.makeDir.all(_))
-
-  /** [[ensureDir]] for a directory under `.orca/cache`, with the cache's
-    * exclusion markers in place first.
-    */
-  private def ensureCacheDir(workDir: os.Path, dir: os.Path): os.Path =
-    val _ = ensureCache(workDir)
-    ensureDir(workDir, dir)
-
-  /** Read-only counterpart to [[abortIfOrcaComponentSymlink]], for callers that
-    * only need to verify before reading (e.g. flow discovery) and must not
-    * create `.orca` as a side effect. A no-op when there is no `.orca` entry —
-    * nothing to guard, and discovery already tolerates a missing tier
-    * directory.
-    */
-  private[orca] def assertNoOrcaSymlinks(workDir: os.Path, dir: os.Path): Unit =
-    if os.exists(rootPath(workDir), followLinks = false) then
-      abortIfOrcaComponentSymlink(workDir, dir)
-
-  /** Refuse if `.orca` — or any orca-created directory from it down to `dir`
-    * (inclusive) — is a symlink, before any `os.makeDir.all`/write through it.
-    * A committed symlink at any component (git mode 120000) would redirect
-    * orca's writes to the link's target, outside the working tree. Each segment
-    * is checked on its own because `os.isLink` (lstat, no-follow) inspects only
-    * the final component, so a symlinked ancestor would be invisible to a
-    * leaf-only check; the no-follow also catches a dangling final link.
-    *
-    * Accepted residual (TOCTOU): a purely LOCAL race could swap a plain
-    * component for a symlink between the check and the write. Out of scope
-    * under the committed-repo-symlink threat model, so left open deliberately.
-    */
-  private def abortIfOrcaComponentSymlink(
-      workDir: os.Path,
-      dir: os.Path
-  ): Unit =
-    val r = rootPath(workDir)
-    // Every path segment from `.orca` down to `dir`, inclusive, walking up from
-    // `dir` so the check order is root-first.
-    @scala.annotation.tailrec
-    def componentsUpTo(p: os.Path, acc: List[os.Path]): List[os.Path] =
-      if p == r then r :: acc
-      else componentsUpTo(p / os.up, p :: acc)
-    componentsUpTo(dir, Nil).foreach: component =>
-      if os.isLink(component) then
-        throw new OrcaFlowException(
-          s"$component is a symlink — refusing to create or write through it " +
-            "(a committed symlink at or below .orca could redirect orca's " +
-            "writes outside the working tree)"
-        )
-
-  // On first-ever cache creation two processes can both see the file absent
-  // before the flow lock exists to serialize them; the loser's `os.write`
-  // (CREATE_NEW) throws. Both writers carry identical contents, so losing the
-  // race is harmless.
-  private def writeIfAbsent(path: os.Path, contents: String): Unit =
-    if !os.exists(path) then
-      try os.write(path, contents)
-      catch
-        case _: java.nio.file.FileAlreadyExistsException =>
-          () // lost the create race; content is identical
+      replace(utf8Bytes(text))

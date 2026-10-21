@@ -18,8 +18,7 @@ import orca.backend.{
   IdScheme,
   SessionSupport,
   SubprocessSpawn,
-  SystemPromptComposer,
-  TurnResources
+  SystemPromptComposer
 }
 import orca.subprocess.CliRunner
 import orca.backend.mcp.{
@@ -29,8 +28,11 @@ import orca.backend.mcp.{
   McpHost,
   RepoMcpServer
 }
-import orca.tools.{GitTool, OsGitHubTool, OsGitTool}
+import orca.effect.{FileSystem, Network}
+import orca.tools.{GitTool, OsGitHubTool}
 import orca.backend.claude.streamjson.OutboundMessage
+import orca.safe.concurrency.defaultBufferCapacity
+import orca.safe.prelude.given
 import ox.{Ox, ResourceScope}
 
 import scala.concurrent.duration.FiniteDuration
@@ -54,15 +56,21 @@ private[claude] final case class TurnMcp(
   * the backend, so a long flow doesn't accumulate them.
   */
 private[orca] class ClaudeBackend(
+    net: Network,
+    fs: FileSystem,
     cli: CliRunner,
-    private[claude] val projectsDir: os.Path = os.home / ".claude" / "projects",
-    /** Shared between the spawn path ([[open]]) and the existence probe (see
-      * [[sessions]]): claude writes a session's transcript under
-      * `<projectsDir>/<cwdSlug(workDir)>/<id>.jsonl`, so both sides reading the
-      * SAME field keeps the probe honest. The `os.pwd` default serves only
-      * bare/test construction; the runtime passes the flow's real `workDir`.
+    /** Builds the `GitTool` behind the repo-read MCP tools, given [[workDir]]:
+      * they read the repository the agent is looking at.
       */
-    override val workDir: os.Path = os.pwd
+    gitAt: os.Path -> GitTool,
+    /** [[ClaudeBackend.transcriptProbe]] in production. */
+    transcriptExists: (os.Path, String) -> Boolean,
+    /** Shared between the spawn path ([[open]]) and the existence probe (see
+      * [[sessions]]): claude writes a session's transcript under a directory
+      * derived from its cwd, so both sides reading the SAME field keeps the
+      * probe honest.
+      */
+    override val workDir: os.Path
 ) extends AgentBackend[BackendTag.ClaudeCode.type]:
 
   /** Claude's sessions live on disk (`~/.claude/projects/.../<id>.jsonl`) and
@@ -75,13 +83,9 @@ private[orca] class ClaudeBackend(
     */
   val tag: BackendTag.ClaudeCode.type = BackendTag.ClaudeCode
 
-  /** Backs the repo-read MCP tools. Derived from `workDir` rather than injected
-    * so it cannot disagree with the directory claude is spawned in — the whole
-    * point of the tools is to read the repository the agent is looking at.
-    */
-  private val git: GitTool = new OsGitTool(workDir)
-
   export ClaudeArgs.enforcementCell
+
+  private val git: GitTool = gitAt(workDir)
 
   override def structuredOutputMode: StructuredOutputMode =
     StructuredOutputMode.Tool
@@ -96,10 +100,7 @@ private[orca] class ClaudeBackend(
   val sessions: SessionSupport[BackendTag.ClaudeCode.type] =
     SessionSupport.durable(
       IdScheme.ClientClaimed,
-      id =>
-        os.exists(
-          projectsDir / ClaudeBackend.cwdSlug(workDir) / s"$id.jsonl"
-        )
+      id => transcriptExists(workDir, id)
     )
 
   /** Spawn `claude` in stream-json mode, write the opening user message, close
@@ -122,7 +123,7 @@ private[orca] class ClaudeBackend(
   )(using Ox): LiveTurn[BackendTag.ClaudeCode.type] =
     import turn.*
     val askUser: Option[AskUserSession] =
-      Option.when(mode.isInteractive)(AskUserSession.allocate())
+      Option.when(mode.isInteractive)(AskUserSession.allocate(net))
     val servers = turnServers(config.tools)
     val mcpConfig = Option.when(askUser.isDefined || servers.nonEmpty):
       writeMcpConfig(askUser.map(_.server), servers)
@@ -180,7 +181,7 @@ private[orca] class ClaudeBackend(
         slugs = RepoMcpServer.ToolSlugs,
         timeout = RepoMcpServer.ToolTimeout,
         hint = RepoMcpServer.Hint,
-        host = RepoMcpServer.start(git)
+        host = RepoMcpServer.start(net, git)
       )
     // `NetworkOnly` only, so reviewers stay network-free.
     val githubReads = Option.when(tools.hasScopedNetwork):
@@ -189,7 +190,7 @@ private[orca] class ClaudeBackend(
         slugs = GitHubMcpServer.ToolSlugs,
         timeout = GitHubMcpServer.ToolTimeout,
         hint = GitHubMcpServer.Hint,
-        host = GitHubMcpServer.start(new OsGitHubTool(cli, workDir))
+        host = GitHubMcpServer.start(net, new OsGitHubTool(cli, workDir))
       )
     List(repoReads, githubReads).flatten
 
@@ -219,7 +220,7 @@ private[orca] class ClaudeBackend(
           McpConfig.HttpServer(host.url, AskUserMcpServer.ToolTimeout)
       ) ++
         servers.map(s => s.name -> McpConfig.HttpServer(s.host.url, s.timeout))
-    TurnResources.tempFile(
+    fs.tempFile(
       McpConfig.render(entries.toMap),
       prefix = "orca-mcp-",
       suffix = ".json"
@@ -234,13 +235,22 @@ private[orca] class ClaudeBackend(
       config: AgentConfig,
       hints: List[String]
   )(using ResourceScope): os.Path =
-    TurnResources.tempFile(
+    fs.tempFile(
       SystemPromptComposer.combine(config, hints.reduceOption(_ + "\n\n" + _)),
       prefix = "orca-system-prompt-",
       suffix = ".md"
     )
 
 object ClaudeBackend:
+
+  /** Whether claude has a transcript for session `id` started in `workDir`;
+    * `projectsDir` is claude's `~/.claude/projects`.
+    */
+  def transcriptProbe(
+      fs: FileSystem,
+      projectsDir: os.Path
+  ): (os.Path, String) ->{fs} Boolean =
+    (workDir, id) => fs.exists(projectsDir / cwdSlug(workDir) / s"$id.jsonl")
 
   /** Derives the project-directory slug that claude uses under
     * `~/.claude/projects/`. E.g. `/home/foo/.bar` → `-home-foo--bar`.

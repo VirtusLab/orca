@@ -1,9 +1,8 @@
 package orca.backend.mcp
 
+import orca.safe.concurrency
+import orca.safe.prelude.discard
 import ox.channels.{BufferCapacity, Channel}
-import ox.discard
-
-import java.util.concurrent.atomic.AtomicBoolean
 
 /** Synchronous rendezvous between the MCP `ask_user` tool handler (which needs
   * a string answer to return to the agent) and the host process (the
@@ -23,7 +22,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 private[backend] class AskUserBridge(using BufferCapacity):
 
   private val pending: Channel[(String, Channel[String])] =
-    Channel.bufferedDefault
+    concurrency.bufferedDefaultChannel
 
   /** Called by the MCP handler. Blocks the calling thread until the host
     * answers. Each call gets its own one-shot reply channel so concurrent
@@ -36,7 +35,7 @@ private[backend] class AskUserBridge(using BufferCapacity):
     * `send` raise a recoverable `ChannelClosedException` instead.
     */
   def ask(question: String): String =
-    val reply: Channel[String] = Channel.rendezvous
+    val reply: Channel[String] = concurrency.rendezvousChannel
     try
       pending.send((question, reply))
       reply.receive()
@@ -46,18 +45,17 @@ private[backend] class AskUserBridge(using BufferCapacity):
     * the closure that delivers the answer to the originating [[ask]]. Blocks if
     * no question is queued.
     *
-    * The returned `respond` closure is idempotent (only the first call
-    * delivers) to protect against a renderer that double-fires. It uses
-    * `sendOrClosed` so that if the originating `ask` has already exited (its
-    * reply channel `done`'d), the caller sees a no-op rather than an exception
-    * escaping into the renderer's dispatch loop.
+    * A second call of the returned `respond` after the first returns is a
+    * no-op, protecting against a renderer that double-fires: `respond` `done`s
+    * the reply channel after sending. `sendOrClosed` also makes a send after
+    * the originating `ask` has exited a no-op rather than an exception escaping
+    * into the renderer's dispatch loop.
     */
   def nextQuestion(): PendingQuestion =
     val (question, reply) = pending.receive()
-    val delivered = new AtomicBoolean(false)
-    val respond: String => Unit = answer =>
-      if delivered.compareAndSet(false, true) then
-        reply.sendOrClosed(answer).discard
+    val respond: String -> Unit = answer =>
+      reply.sendOrClosed(answer).discard
+      reply.doneOrClosed().discard
     PendingQuestion(question, respond)
 
 /** Single pending invocation of `ask_user`: the question text the agent
@@ -66,5 +64,5 @@ private[backend] class AskUserBridge(using BufferCapacity):
   */
 private[mcp] final case class PendingQuestion(
     question: String,
-    respond: String => Unit
+    respond: String -> Unit
 )

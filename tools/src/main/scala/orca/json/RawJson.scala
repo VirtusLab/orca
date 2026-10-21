@@ -5,6 +5,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
   JsonValueCodec,
   JsonWriter
 }
+import orca.safe.prelude.UTF_8
 
 /** Opaque wrapper for a JSON subtree held in its serialized form. Used for
   * message fields whose shape varies too much to model (tool inputs, MCP
@@ -29,13 +30,10 @@ object RawJson:
   given JsonValueCodec[RawJson] with
     def decodeValue(in: JsonReader, default: RawJson): RawJson =
       // The next JSON value verbatim, re-interpreted as UTF-8.
-      new String(
-        in.readRawValAsBytes(),
-        java.nio.charset.StandardCharsets.UTF_8
-      )
+      new String(in.readRawValAsBytes(), UTF_8)
 
     def encodeValue(x: RawJson, out: JsonWriter): Unit =
-      out.writeRawVal(x.value.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+      out.writeRawVal(x.value.getBytes(UTF_8))
 
     def nullValue: RawJson = "null"
 
@@ -44,4 +42,4 @@ object RawJson:
     * `--json-schema`; `string` is the closest primitive for an opaque
     * serialized subtree.
     */
-  given sttp.tapir.Schema[RawJson] = sttp.tapir.Schema.string
+  given sttp.tapir.Schema[RawJson] = JsonData.stringSchema

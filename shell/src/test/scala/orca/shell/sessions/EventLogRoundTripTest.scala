@@ -1,5 +1,6 @@
 package orca.shell.sessions
 
+import orca.effect.FileSystem
 import orca.{AttemptId, RunKey, StagePath}
 import orca.agents.{BackendTag, SessionKey}
 import orca.events.OrcaEvent
@@ -24,6 +25,7 @@ class EventLogRoundTripTest extends munit.FunSuite:
     supervised:
       given BufferCapacity = BufferCapacity(8)
       val log = RunEventLog.start(
+        FileSystem.ambient,
         workDir,
         RunKey.of("a prompt"),
         AttemptId(Instant.now(), pid = 1),

@@ -251,11 +251,11 @@ class ReviewerSelectorTest extends munit.FunSuite:
     val capture = new SelectorSteps
     val selector =
       ReviewerSelector.narrowingAcrossRounds(ReviewerSelector.allEveryRound)
-    val selectRound = selector.prepare(all, Title("any"), List("src/lib.rs"))(
-      using
-      capture.ctx,
-      summon[orca.InStage]
-    )
+    val selectRound =
+      selector.prepare(all, Title("any"), List("src/lib.rs"))(using
+        capture.ctx,
+        summon[orca.InStage]
+      )
     // Nobody reported. A lint gate can keep the fix loop iterating through
     // that, so the round must not run zero reviewers.
     assertEquals(

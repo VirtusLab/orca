@@ -42,7 +42,11 @@ class ReviewerCatalogTest extends munit.FunSuite:
     // directory fails here rather than quietly finding nothing.
     val projectDir = OrcaDir.reviewersPath(RepoRoot.dir)
     val catalog =
-      ReviewerCatalog.discover(projectDir, TempDirs.dir() / "absent")
+      ReviewerCatalog.discover(
+        _root_.orca.effect.FileSystem.ambient,
+        projectDir,
+        TempDirs.dir() / "absent"
+      )
     val reviewer = catalog.all
       .find(_.name.value == "orca")
       .getOrElse(fail(s"no reviewer named 'orca' in $projectDir"))
@@ -65,7 +69,11 @@ class ReviewerCatalogTest extends munit.FunSuite:
     val (project, global) = dirs()
     val _ = writeReviewer(project, "zeta")
     val _ = writeReviewer(project, "alpha")
-    val catalog = ReviewerCatalog.discover(project, global)
+    val catalog = ReviewerCatalog.discover(
+      _root_.orca.effect.FileSystem.ambient,
+      project,
+      global
+    )
     assertEquals(
       named(catalog.all),
       named(ReviewerPrompts.all) ++ List("alpha", "zeta")
@@ -83,7 +91,11 @@ class ReviewerCatalogTest extends munit.FunSuite:
       description = "our own scala rules",
       body = "## Our scope"
     )
-    val catalog = ReviewerCatalog.discover(project, global)
+    val catalog = ReviewerCatalog.discover(
+      _root_.orca.effect.FileSystem.ambient,
+      project,
+      global
+    )
     assertEquals(named(catalog.all), named(ReviewerPrompts.all))
     // `scala-fp` is outside `minimal`, so a shadow of it adds nothing there.
     assertEquals(named(catalog.minimal), named(ReviewerPrompts.minimal))
@@ -101,7 +113,11 @@ class ReviewerCatalogTest extends munit.FunSuite:
     // stayed additive would run beside the reviewer it meant to replace.
     val (project, global) = dirs()
     val _ = writeReviewer(project, "Scala-FP", description = "ours")
-    val catalog = ReviewerCatalog.discover(project, global)
+    val catalog = ReviewerCatalog.discover(
+      _root_.orca.effect.FileSystem.ambient,
+      project,
+      global
+    )
     assertEquals(named(catalog.all), named(ReviewerPrompts.all))
     assertEquals(
       catalog.all.find(_.name.value == "scala-fp").get.description,
@@ -120,7 +136,10 @@ class ReviewerCatalogTest extends munit.FunSuite:
       files = Some("""\.scala$"""),
       body = "## Our scope"
     )
-    val orca = ReviewerCatalog.discover(project, global).all.last
+    val orca = ReviewerCatalog
+      .discover(_root_.orca.effect.FileSystem.ambient, project, global)
+      .all
+      .last
     assertEquals(orca.systemPrompt, "## Our scope\n")
     assertEquals(orca.filePattern.map(_.regex), Some("""\.scala$"""))
 
@@ -128,7 +147,11 @@ class ReviewerCatalogTest extends munit.FunSuite:
     val (project, global) = dirs()
     val _ = writeReviewer(project, "orca", description = "the project's")
     val _ = writeReviewer(global, "orca", description = "the user's")
-    val catalog = ReviewerCatalog.discover(project, global)
+    val catalog = ReviewerCatalog.discover(
+      _root_.orca.effect.FileSystem.ambient,
+      project,
+      global
+    )
     assertEquals(
       catalog.all.find(_.name.value == "orca").get.description,
       "the project's"
@@ -141,33 +164,55 @@ class ReviewerCatalogTest extends munit.FunSuite:
   test("a global reviewer is picked up when the project has none"):
     val (project, global) = dirs()
     val _ = writeReviewer(global, "orca", description = "the user's")
-    val catalog = ReviewerCatalog.discover(project, global)
+    val catalog = ReviewerCatalog.discover(
+      _root_.orca.effect.FileSystem.ambient,
+      project,
+      global
+    )
     assertEquals(named(catalog.all), named(ReviewerPrompts.all) :+ "orca")
     assertEquals(catalog.discovered.map(_.tier), List(ReviewerFileTier.Global))
 
   test("a CRLF reviewer file is read like any other"):
     val (project, global) = dirs()
     val _ = writeReviewer(project, "orca", newline = "\r\n")
-    val catalog = ReviewerCatalog.discover(project, global)
+    val catalog = ReviewerCatalog.discover(
+      _root_.orca.effect.FileSystem.ambient,
+      project,
+      global
+    )
     assertEquals(named(catalog.all), named(ReviewerPrompts.all) :+ "orca")
 
   test("a missing tier directory contributes nothing"):
     val (project, global) = dirs()
-    val catalog = ReviewerCatalog.discover(project, global)
+    val catalog = ReviewerCatalog.discover(
+      _root_.orca.effect.FileSystem.ambient,
+      project,
+      global
+    )
     assertEquals(catalog.all, ReviewerPrompts.all)
     assertEquals(catalog.discovered, Nil)
 
   test("a file that is not .md is ignored"):
     val (project, global) = dirs()
     os.write(project / "notes.txt", "not a reviewer", createFolders = true)
-    assertEquals(ReviewerCatalog.discover(project, global).discovered, Nil)
+    assertEquals(
+      ReviewerCatalog
+        .discover(_root_.orca.effect.FileSystem.ambient, project, global)
+        .discovered,
+      Nil
+    )
 
   test("README.md and _-prefixed files sit in the directory as documents"):
     val (project, global) = dirs()
     val doc = "# Reviewers\n\nDrop a reviewer prompt here.\n"
     os.write(project / "README.md", doc, createFolders = true)
     os.write(project / "_draft.md", doc, createFolders = true)
-    assertEquals(ReviewerCatalog.discover(project, global).discovered, Nil)
+    assertEquals(
+      ReviewerCatalog
+        .discover(_root_.orca.effect.FileSystem.ambient, project, global)
+        .discovered,
+      Nil
+    )
 
   test("any other .md with no frontmatter aborts, not silently skipped"):
     // Forgetting the frontmatter block is the likely authoring mistake; the
@@ -179,7 +224,13 @@ class ReviewerCatalogTest extends munit.FunSuite:
       createFolders = true
     )
     val e =
-      intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
+      intercept[OrcaFlowException](
+        ReviewerCatalog.discover(
+          _root_.orca.effect.FileSystem.ambient,
+          project,
+          global
+        )
+      )
     assert(e.getMessage.contains("has no frontmatter block"), e.getMessage)
 
   test("a symlink is reported alongside a malformed file"):
@@ -187,7 +238,13 @@ class ReviewerCatalogTest extends munit.FunSuite:
     val _ = writeReviewer(project, "alpha", description = "")
     os.symlink(project / "linked.md", writeReviewer(global, "elsewhere"))
     val e =
-      intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
+      intercept[OrcaFlowException](
+        ReviewerCatalog.discover(
+          _root_.orca.effect.FileSystem.ambient,
+          project,
+          global
+        )
+      )
     assert(e.getMessage.contains("alpha"), e.getMessage)
     assert(e.getMessage.contains("linked.md is a symlink"), e.getMessage)
 
@@ -196,7 +253,13 @@ class ReviewerCatalogTest extends munit.FunSuite:
     os.makeDir.all(global)
     os.symlink(global / "orca.md", global / "gone.md")
     val e =
-      intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
+      intercept[OrcaFlowException](
+        ReviewerCatalog.discover(
+          _root_.orca.effect.FileSystem.ambient,
+          project,
+          global
+        )
+      )
     assert(e.getMessage.contains("cannot be read"), e.getMessage)
 
   test("a symlinked .md in the project tier aborts, naming the link"):
@@ -206,7 +269,13 @@ class ReviewerCatalogTest extends munit.FunSuite:
     os.symlink(project / "orca.md", outside)
     assert(os.isLink(project / "orca.md"), "the fixture must be a symlink")
     val e =
-      intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
+      intercept[OrcaFlowException](
+        ReviewerCatalog.discover(
+          _root_.orca.effect.FileSystem.ambient,
+          project,
+          global
+        )
+      )
     assert(e.getMessage.contains((project / "orca.md").toString), e.getMessage)
 
   test("a symlinked .md in the global tier is followed"):
@@ -216,21 +285,37 @@ class ReviewerCatalogTest extends munit.FunSuite:
     os.makeDir.all(global)
     os.symlink(global / "orca.md", outside)
     assert(os.isLink(global / "orca.md"), "the fixture must be a symlink")
-    val catalog = ReviewerCatalog.discover(project, global)
+    val catalog = ReviewerCatalog.discover(
+      _root_.orca.effect.FileSystem.ambient,
+      project,
+      global
+    )
     assertEquals(named(catalog.all), named(ReviewerPrompts.all) :+ "orca")
 
   test("a directory named like a reviewer aborts in the project tier"):
     val (project, global) = dirs()
     os.makeDir.all(project / "orca.md")
     val e =
-      intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
+      intercept[OrcaFlowException](
+        ReviewerCatalog.discover(
+          _root_.orca.effect.FileSystem.ambient,
+          project,
+          global
+        )
+      )
     assert(e.getMessage.contains("is a directory"), e.getMessage)
 
   test("a directory named like a reviewer aborts in the global tier"):
     val (project, global) = dirs()
     os.makeDir.all(global / "orca.md")
     val e =
-      intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
+      intercept[OrcaFlowException](
+        ReviewerCatalog.discover(
+          _root_.orca.effect.FileSystem.ambient,
+          project,
+          global
+        )
+      )
     assert(e.getMessage.contains("is a directory"), e.getMessage)
 
   test("a global-tier symlink to a directory aborts"):
@@ -240,7 +325,13 @@ class ReviewerCatalogTest extends munit.FunSuite:
     os.makeDir.all(global)
     os.symlink(global / "orca.md", TempDirs.dir("orca-outside-"))
     val e =
-      intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
+      intercept[OrcaFlowException](
+        ReviewerCatalog.discover(
+          _root_.orca.effect.FileSystem.ambient,
+          project,
+          global
+        )
+      )
     assert(e.getMessage.contains("is a directory"), e.getMessage)
 
   test("a project-tier symlink to a directory is reported as a symlink"):
@@ -250,7 +341,13 @@ class ReviewerCatalogTest extends munit.FunSuite:
     os.makeDir.all(project)
     os.symlink(project / "orca.md", TempDirs.dir("orca-outside-"))
     val e =
-      intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
+      intercept[OrcaFlowException](
+        ReviewerCatalog.discover(
+          _root_.orca.effect.FileSystem.ambient,
+          project,
+          global
+        )
+      )
     assert(e.getMessage.contains("is a symlink"), e.getMessage)
 
   test("an unterminated frontmatter block aborts, not silently skipped"):
@@ -261,7 +358,13 @@ class ReviewerCatalogTest extends munit.FunSuite:
       createFolders = true
     )
     val e =
-      intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
+      intercept[OrcaFlowException](
+        ReviewerCatalog.discover(
+          _root_.orca.effect.FileSystem.ambient,
+          project,
+          global
+        )
+      )
     assert(
       e.getMessage.contains("block the parser could not read"),
       e.getMessage
@@ -273,7 +376,13 @@ class ReviewerCatalogTest extends munit.FunSuite:
     val _ = writeReviewer(project, "orca")
     val _ = writeReviewer(project, "Orca")
     val e =
-      intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
+      intercept[OrcaFlowException](
+        ReviewerCatalog.discover(
+          _root_.orca.effect.FileSystem.ambient,
+          project,
+          global
+        )
+      )
     assert(e.getMessage.contains("Orca.md"), e.getMessage)
     assert(e.getMessage.contains("orca.md"), e.getMessage)
 
@@ -285,7 +394,13 @@ class ReviewerCatalogTest extends munit.FunSuite:
       createFolders = true
     )
     val e =
-      intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
+      intercept[OrcaFlowException](
+        ReviewerCatalog.discover(
+          _root_.orca.effect.FileSystem.ambient,
+          project,
+          global
+        )
+      )
     assert(e.getMessage.contains((project / "orca.md").toString), e.getMessage)
     assert(e.getMessage.contains("description:"), e.getMessage)
 
@@ -294,14 +409,26 @@ class ReviewerCatalogTest extends munit.FunSuite:
     val (project, global) = dirs()
     val _ = writeReviewer(project, "orca", description = "\"  \"")
     val e =
-      intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
+      intercept[OrcaFlowException](
+        ReviewerCatalog.discover(
+          _root_.orca.effect.FileSystem.ambient,
+          project,
+          global
+        )
+      )
     assert(e.getMessage.contains("description:"), e.getMessage)
 
   test("a reviewer file with no body aborts"):
     val (project, global) = dirs()
     val _ = writeReviewer(project, "orca", body = "   ")
     val e =
-      intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
+      intercept[OrcaFlowException](
+        ReviewerCatalog.discover(
+          _root_.orca.effect.FileSystem.ambient,
+          project,
+          global
+        )
+      )
     assert(e.getMessage.contains("system prompt"), e.getMessage)
 
   test("a block-scalar description aborts, naming the key"):
@@ -313,7 +440,13 @@ class ReviewerCatalogTest extends munit.FunSuite:
         description = "> # folded\n  checks the thing"
       )
     val e =
-      intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
+      intercept[OrcaFlowException](
+        ReviewerCatalog.discover(
+          _root_.orca.effect.FileSystem.ambient,
+          project,
+          global
+        )
+      )
     assert(
       e.getMessage.contains("'description:' as a YAML block"),
       e.getMessage
@@ -323,7 +456,13 @@ class ReviewerCatalogTest extends munit.FunSuite:
     val (project, global) = dirs()
     val _ = writeReviewer(project, "orca", files = Some("|"))
     val e =
-      intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
+      intercept[OrcaFlowException](
+        ReviewerCatalog.discover(
+          _root_.orca.effect.FileSystem.ambient,
+          project,
+          global
+        )
+      )
     assert(e.getMessage.contains("'files:' as a YAML block"), e.getMessage)
 
   private def assertWrapped(
@@ -334,7 +473,13 @@ class ReviewerCatalogTest extends munit.FunSuite:
     val (project, global) = dirs()
     val _ = writeReviewer(project, "orca", description, files)
     val e =
-      intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
+      intercept[OrcaFlowException](
+        ReviewerCatalog.discover(
+          _root_.orca.effect.FileSystem.ambient,
+          project,
+          global
+        )
+      )
     assert(e.getMessage.contains(s"wraps its '$key:' value"), e.getMessage)
 
   test("a description wrapped onto the next line aborts, naming the key"):
@@ -356,14 +501,24 @@ class ReviewerCatalogTest extends munit.FunSuite:
       "---\ndescription: checks\ntools:\n  - Read\n---\n\n## Scope\n",
       createFolders = true
     )
-    val catalog = ReviewerCatalog.discover(project, global)
+    val catalog = ReviewerCatalog.discover(
+      _root_.orca.effect.FileSystem.ambient,
+      project,
+      global
+    )
     assert(named(catalog.all).contains("orca"))
 
   test("a reviewer file with an unparseable files: regex aborts"):
     val (project, global) = dirs()
     val _ = writeReviewer(project, "orca", files = Some("""\.scala($"""))
     val e =
-      intercept[OrcaFlowException](ReviewerCatalog.discover(project, global))
+      intercept[OrcaFlowException](
+        ReviewerCatalog.discover(
+          _root_.orca.effect.FileSystem.ambient,
+          project,
+          global
+        )
+      )
     assert(e.getMessage.contains("files:"), e.getMessage)
 
   test("builtIn is the shipped set with nothing discovered"):
@@ -376,7 +531,9 @@ class ReviewerCatalogTest extends munit.FunSuite:
     val _ = writeReviewer(project, "orca")
     val _ = writeReviewer(project, "scala-fp")
     assertEquals(
-      ReviewerCatalog.discover(project, global).describe,
+      ReviewerCatalog
+        .discover(_root_.orca.effect.FileSystem.ambient, project, global)
+        .describe,
       Some(
         "discovered reviewers: orca (project); " +
           "scala-fp (project, shadows built-in)"

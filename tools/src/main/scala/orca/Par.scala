@@ -1,6 +1,6 @@
 package orca
 
-import ox.flow.Flow
+import orca.safe.concurrency
 
 /** The sanctioned fan-out for flow scripts: run `f` over `items` concurrently
   * and collect the results, without importing Ox directly.
@@ -21,4 +21,4 @@ object Par:
     * interrupting the in-flight siblings.
     */
   def mapUnordered[A, R](parallelism: Int)(items: Seq[A])(f: A => R): List[R] =
-    Flow.fromIterable(items).mapParUnordered(parallelism)(f).runToList()
+    concurrency.mapParUnordered(parallelism)(items)(f)(_ => ())

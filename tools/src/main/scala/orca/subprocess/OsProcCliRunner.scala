@@ -1,23 +1,12 @@
 package orca.subprocess
 
-import org.slf4j.LoggerFactory
-import ox.{abandonOnInterruptReads, discard, raceResult, sleep}
+import orca.effect.Processes
 
-import java.io.{BufferedReader, InputStream, InputStreamReader}
-import java.nio.charset.StandardCharsets.UTF_8
-import java.util.concurrent.atomic.AtomicReference
-import scala.concurrent.duration.*
-import scala.jdk.CollectionConverters.given
-
-/** Runs external commands via os-lib. `check = false` is intentional — callers
-  * inspect `exitCode` and `stderr` rather than handle exceptions, since
-  * non-zero exits from tools like `claude -p` carry actionable information.
+/** Runs external commands through `procs`. Non-zero exits are returned, not
+  * thrown: callers inspect `exitCode` and `stderr`, since non-zero exits from
+  * tools like `claude -p` carry actionable information.
   */
-object OsProcCliRunner extends CliRunner:
-  // Traces command + flags + exit code to the per-run log. Prompts travel over
-  // stdin, not argv, so this doesn't leak prompt bodies (logged separately via
-  // the `UserPrompt` event).
-  private val log = LoggerFactory.getLogger("orca.proc")
+final class OsProcCliRunner(procs: Processes) extends CliRunner:
 
   def run(
       args: Seq[String],
@@ -25,162 +14,11 @@ object OsProcCliRunner extends CliRunner:
       env: Map[String, String],
       cwd: os.Path
   ): CliResult =
-    // Delegates to QuietProc, which guarantees captured stderr so subprocess
-    // output never bypasses the renderer's StatusBar (see [[QuietProc]]).
-    log.debug("exec: {} (cwd={})", args.mkString(" "), cwd)
-    val result = QuietProc.call(args, cwd = cwd, env = env, stdin = stdin)
-    log.debug("exit {}: {}", result.exitCode, args.headOption.getOrElse("?"))
-    CliResult(result.exitCode, result.out.text(), result.err.text())
+    procs.call(args, cwd = cwd, env = env, stdin = stdin)
 
   def spawnPiped(
       args: Seq[String],
       env: Map[String, String],
       cwd: os.Path
   ): PipedCliProcess =
-    log.debug("spawn: {} (cwd={})", args.mkString(" "), cwd)
-    // os-lib applies `env` on top of the inherited environment (replacing it
-    // only with `propagateEnv = false`), so this adds one variable and changes
-    // nothing else the CLI sees.
-    val cookie = EnvCookie.mint()
-    val sub = os
-      .proc(args)
-      .spawn(
-        cwd = cwd,
-        env = env + (EnvCookie.VarName -> cookie.value),
-        stdin = os.Pipe,
-        stdout = os.Pipe,
-        stderr = os.Pipe
-      )
-    new OsPipedSubProcess(sub, cookie)
-
-/** Takes the cookie unwrapped: a process orca actually spawned always carries
-  * one, so it cannot be constructed without it.
-  */
-private final class OsPipedSubProcess(
-    sub: os.SubProcess,
-    cookie: EnvCookie
-) extends PipedCliProcess:
-
-  def envCookie: Option[EnvCookie] = Some(cookie)
-
-  // Memoised so repeated calls return the same iterator, avoiding a second
-  // `BufferedReader` leak against the pipe.
-  private lazy val stdoutIterator: Iterator[String] =
-    linesOf(sub.wrapped.getInputStream)
-  private lazy val stderrIterator: Iterator[String] =
-    linesOf(sub.wrapped.getErrorStream)
-
-  /** Lines of `pipe`, ending at EOF or once the process has exited and no line
-    * arrives within [[OsPipedSubProcess.OrphanedPipeGrace]].
-    *
-    * Everything the process wrote is in the pipe buffer by the time it exits,
-    * so a read still blocked after the grace waits only on a descendant that
-    * inherited the pipe and outlived the process. That descendant keeps
-    * running, and so does the pipe's detached reader thread: blocked in the
-    * read until the descendant exits or writes, and parked for good if it
-    * writes. An unterminated last line is dropped in that case.
-    */
-  private def linesOf(pipe: InputStream): Iterator[String] =
-    val reader = BufferedReader(
-      InputStreamReader(abandonOnInterruptReads(pipe), UTF_8)
-    )
-    // `raceResult`, so a failed read surfaces at once. Not `reader.lines()`: its
-    // iterator reads again on each `hasNext` after the end.
-    Iterator
-      .continually(raceResult(reader.readLine(), endOfOutput()))
-      .takeWhile(_ != null)
-
-  /** `null`, as `readLine` at EOF, once the process has exited and the grace
-    * has passed.
-    */
-  private def endOfOutput(): String =
-    sub.wrapped.waitFor().discard
-    sleep(OsPipedSubProcess.OrphanedPipeGrace)
-    null
-
-  /** Descendants that were alive when the root was signalled. Signalling the
-    * root can make it exit, at which point its children are reparented to init
-    * and drop out of the root's `descendants()` walk — so a later tree kill
-    * would silently miss exactly the processes it exists to reap. Killing a
-    * remembered `ProcessHandle` cannot hit an unrelated process that recycled
-    * the pid: the JDK signals only if the pid still has the start time the
-    * handle was taken with.
-    *
-    * The snapshot only ever fills when orca signals a root that is still alive
-    * — a turn that settles, or a cancel. A root that exited on its own (an
-    * agent crash, a clean exit with no terminal message) was never signalled,
-    * so nothing was recorded and its descendants survive.
-    */
-  private val signalledDescendants: AtomicReference[List[ProcessHandle]] =
-    new AtomicReference(Nil)
-
-  // Signals the root PID only, deliberately: a spawned child inherits the JVM's
-  // process group (`ProcessBuilder` does not setsid), so `kill -INT -<pgid>`
-  // would signal orca itself. Descendants are covered by `destroyForciblyTree`,
-  // which walks parent→child links instead of the group.
-  def sendSigInt(): Unit =
-    // Walked outside the CAS: `updateAndGet` may retry its function, and an OS
-    // process walk is neither cheap nor idempotent enough to re-run.
-    val toRemember = liveDescendants()
-    signalledDescendants
-      .updateAndGet(prev => (prev ++ toRemember).distinct)
-      .discard
-    // Narrows (does not close) the window where the pid has been recycled by an
-    // unrelated process — unlike the ProcessHandle path, a shelled-out `kill`
-    // has no start-time check to protect it. SIGINT rather than
-    // `ProcessHandle.destroy`'s SIGTERM because that is the signal agent CLIs
-    // treat as "user interrupted me".
-    if sub.isAlive() then
-      QuietProc.call(Seq("kill", "-INT", sub.wrapped.pid.toString)).discard
-
-  def isAlive: Boolean = sub.isAlive()
-
-  def destroyForcibly(): Unit =
-    val _ = sub.wrapped.destroyForcibly()
-
-  override def destroyForciblyTree(): Unit =
-    // Remembered handles are re-expanded rather than killed flat: by now the
-    // root is usually gone, so they are the only reachable branch of the tree,
-    // and each may have spawned children since the snapshot was taken.
-    // Reachability is best-effort throughout — a process that detached itself
-    // (`nohup … &`, `setsid`) appears in neither the walk nor the snapshot. A
-    // process group established here would not extend to it either: every agent
-    // CLI runs its tool calls in a session of their own, so orca's group never
-    // contains them (measured: a claude bash tool call's session id is its own
-    // pid). Reaching a detached process needs a marker it carries — e.g. a
-    // per-turn cookie injected into the environment and swept at teardown — or
-    // an OS-level container such as a cgroup scope.
-    val remembered =
-      signalledDescendants.get().flatMap(h => h +: descendantsOf(h))
-    (liveDescendants() ++ remembered).foreach(_.destroyForcibly().discard)
-    sub.wrapped.toHandle.destroyForcibly().discard
-
-  private def liveDescendants(): List[ProcessHandle] =
-    descendantsOf(sub.wrapped.toHandle)
-
-  private def descendantsOf(handle: ProcessHandle): List[ProcessHandle] =
-    handle.descendants().iterator().asScala.toList
-
-  def waitForExit(): Int =
-    val _ = sub.join()
-    sub.exitCode()
-
-  def writeLine(line: String): Unit =
-    sub.stdin.writeLine(line)
-    sub.stdin.flush()
-
-  def closeStdin(): Unit = sub.stdin.close()
-
-  def stdoutLines: Iterator[String] = stdoutIterator
-
-  def stderrLines: Iterator[String] = stderrIterator
-
-  def tryExitCode: Option[Int] =
-    if sub.isAlive() then None else Some(sub.exitCode())
-
-private[subprocess] object OsPipedSubProcess:
-
-  /** How long a pipe may stay silent after the process exited before its stream
-    * ends.
-    */
-  val OrphanedPipeGrace: FiniteDuration = 1.second
+    procs.spawnPiped(args, cwd = cwd, env = env)

@@ -1,5 +1,6 @@
 package orca.backend.codex
 
+import orca.effect.{FileSystem, Network, Processes}
 import orca.testkit.OpenTurn
 import orca.AgentTurnFailed
 import orca.agents.{
@@ -39,7 +40,16 @@ class CodexIntegrationTest extends munit.FunSuite:
       workDir: os.Path = TempDirs.dir()
   )(body: ox.Ox ?=> CodexBackend => Unit): Unit =
     SupervisedBackend.using(
-      new CodexBackend(OsProcCliRunner, workDir = workDir)
+      new CodexBackend(
+        Network.ambient,
+        FileSystem.ambient,
+        OsProcCliRunner(Processes.ambient),
+        CodexBackend.rolloutProbe(
+          FileSystem.ambient,
+          os.home / ".codex" / "sessions"
+        ),
+        workDir = workDir
+      )
     )(body)
 
   private val unsandboxed: AgentConfig =

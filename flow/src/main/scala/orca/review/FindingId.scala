@@ -43,6 +43,6 @@ object FindingId:
       in.readString(default)
     def encodeValue(value: FindingId, out: JsonWriter): Unit =
       out.writeVal(value)
-    def nullValue: FindingId = null.asInstanceOf[FindingId]
+    def nullValue: FindingId = null
 
-  given Schema[FindingId] = Schema.string[FindingId]
+  given Schema[FindingId] = orca.json.JsonData.stringSchema[FindingId]

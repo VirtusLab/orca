@@ -5,12 +5,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
   JsonValueCodec,
   JsonWriter
 }
-import com.github.plokhotnyuk.jsoniter_scala.macros.{
-  ConfiguredJsonValueCodec,
-  JsonCodecMaker
-}
-import orca.json.JsonData
-import sttp.tapir.Schema
+import orca.json.{JsonCodec, JsonData}
 
 import scala.annotation.tailrec
 
@@ -46,7 +41,7 @@ enum StagePath:
         acc: List[StagePath.Segment]
     ): List[StagePath.Segment] =
       path match
-        case FlowBody => acc
+        case FlowBody                        => acc
         case Stage(parent, name, occurrence) =>
           loop(parent, StagePath.Segment(name, occurrence) :: acc)
     loop(this, Nil)
@@ -55,7 +50,7 @@ object StagePath:
   private case class Segment(name: String, occurrence: Int)
 
   private val segmentsCodec: JsonValueCodec[List[Segment]] =
-    JsonCodecMaker.make
+    JsonCodec.make
 
   // The list codec reads `null` as its default, which would be the flow body.
   private def decode(in: JsonReader): StagePath =
@@ -75,8 +70,8 @@ object StagePath:
 
   /** A stage's path, refusing the flow body's `[]`. */
   given stageJsonData: JsonData[Stage] = JsonData(
-    Schema.schemaForIterable[Segment, List](using Schema.derived).as[Stage],
-    new ConfiguredJsonValueCodec[Stage]:
+    JsonData.listSchema(using JsonData.derivedSchema[Segment]).as[Stage],
+    new JsonCodec[Stage]:
       def decodeValue(in: JsonReader, default: Stage): Stage =
         decode(in) match
           case s: Stage => s

@@ -1,9 +1,8 @@
 package orca.agents
 
-import com.github.plokhotnyuk.jsoniter_scala.macros.{
-  CodecMakerConfig,
-  ConfiguredJsonValueCodec
-}
+import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
+import orca.json.JsonCodec
+import orca.safe.prelude.randomUuid
 
 /** Compile-time type tag for a concrete LLM backend. Carried as the `B`
   * parameter on [[SessionId]], [[orca.backend.AgentResult]],
@@ -18,8 +17,8 @@ enum BackendTag:
 
 object BackendTag:
   given codec: ConfiguredJsonValueCodec[BackendTag] =
-    ConfiguredJsonValueCodec.derived[BackendTag](using
-      CodecMakerConfig.withDiscriminatorFieldName(None)
+    JsonCodec.derived[BackendTag](using
+      JsonCodec.config.withDiscriminatorFieldName(None)
     )
 
 /** Orca's stable client handle for one agent conversation. Library-internal:
@@ -67,7 +66,7 @@ private[orca] object SessionId:
     * backend stores a client→server mapping keyed on this value.
     */
   def fresh[B <: BackendTag]: SessionId[B] =
-    java.util.UUID.randomUUID.toString
+    randomUuid()
 
 /** The id a backend actually resumes a conversation against on the wire —
   * distinct from [[SessionId]], orca's stable client handle. For claude (and

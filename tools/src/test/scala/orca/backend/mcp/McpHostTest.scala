@@ -3,6 +3,8 @@ package orca.backend.mcp
 import chimp.protocol.ToolContent
 import chimp.server.{NoStructuredOutput, ServerContext, ToolResult, tool}
 import io.circe.Codec
+import orca.effect.Network
+import orca.json.SchemaDerivation
 import ox.supervised
 import sttp.shared.Identity
 import sttp.tapir.Schema
@@ -11,7 +13,10 @@ import java.net.URI
 import java.net.http.{HttpClient, HttpRequest, HttpResponse}
 import scala.concurrent.duration.DurationInt
 
-private case class Probe(text: String) derives Codec, Schema
+private case class Probe(text: String) derives Codec
+
+private object Probe:
+  given Schema[Probe] = SchemaDerivation.derived
 
 class McpHostTest extends munit.FunSuite:
 
@@ -67,7 +72,7 @@ class McpHostTest extends munit.FunSuite:
         tool("probe")
           .input[Probe]
           .handle(_ => throw new RuntimeException(message))
-      val host = McpHost.start(List(throwing), 10.seconds)
+      val host = McpHost.start(Network.ambient, List(throwing), 10.seconds)
       val response = call(
         host.url,
         """{"jsonrpc":"2.0","id":1,"method":"tools/call",""" +

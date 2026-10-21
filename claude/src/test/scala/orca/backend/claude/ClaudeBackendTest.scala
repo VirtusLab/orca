@@ -1,5 +1,6 @@
 package orca.backend.claude
 
+import orca.effect.{FileSystem, Network, Processes}
 import orca.testkit.OpenTurn
 import orca.backend.{
   Dispatch,
@@ -18,7 +19,8 @@ import orca.agents.{
   onWire
 }
 import orca.{OrcaFlowException}
-import orca.subprocess.{FakePipedCliProcess, SpawnStubCliRunner}
+import orca.subprocess.{CliRunner, FakePipedCliProcess, SpawnStubCliRunner}
+import orca.tools.OsGitTool
 import orca.testkit.TempDirs
 
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
@@ -56,9 +58,28 @@ class ClaudeBackendTest extends munit.FunSuite:
     p.sendSigInt()
     p
 
+  /** `projectsDir` defaults to an empty temp dir, so no test reads the
+    * developer's real transcripts.
+    */
+  private def claudeBackend(
+      cli: CliRunner,
+      projectsDir: os.Path = TempDirs.dir(),
+      workDir: os.Path = os.pwd
+  ): ClaudeBackend =
+    val fs = FileSystem.ambient
+    new ClaudeBackend(
+      Network.ambient,
+      fs,
+      cli,
+      new OsGitTool(_, Processes.ambient, fs),
+      ClaudeBackend.transcriptProbe(fs, projectsDir),
+      workDir
+    )
+
   private def withBackend[T](runner: SpawnStubCliRunner)(
       body: ox.Ox ?=> ClaudeBackend => T
-  ): T = SupervisedBackend.using(new ClaudeBackend(runner))(body)
+  ): T =
+    SupervisedBackend.using(claudeBackend(runner))(body)
 
   private def freshSid: SessionId[BackendTag.ClaudeCode.type] =
     SessionId[BackendTag.ClaudeCode.type](
@@ -280,7 +301,7 @@ class ClaudeBackendTest extends munit.FunSuite:
     // The declaration behind the prompt's delivery instruction: --json-schema
     // (asserted below) makes the CLI inject a StructuredOutput tool, so the
     // instruction must ask for that tool call, not raw reply text.
-    val backend = new ClaudeBackend(new SpawnStubCliRunner(Nil))
+    val backend = claudeBackend(new SpawnStubCliRunner(Nil))
     assertEquals(
       backend.structuredOutputMode,
       orca.agents.StructuredOutputMode.Tool
@@ -552,7 +573,7 @@ class ClaudeBackendTest extends munit.FunSuite:
     os.write(tmpProjects / slug / s"${SessionId.value(freshSid)}.jsonl", "")
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     SupervisedBackend.using(
-      new ClaudeBackend(runner, projectsDir = tmpProjects, workDir = cwd)
+      claudeBackend(runner, projectsDir = tmpProjects, workDir = cwd)
     ): backend =>
       val _ = backend.runAutonomous("continue", freshSid, AgentConfig())
       val args = runner.calls.head
@@ -571,7 +592,7 @@ class ClaudeBackendTest extends munit.FunSuite:
     os.makeDir.all(tmpProjects / slug)
     os.write(tmpProjects / slug / s"${SessionId.value(freshSid)}.jsonl", "")
     SupervisedBackend.using(
-      new ClaudeBackend(
+      claudeBackend(
         new SpawnStubCliRunner(Nil),
         projectsDir = tmpProjects,
         workDir = cwd
@@ -593,23 +614,14 @@ class ClaudeBackendTest extends munit.FunSuite:
     // with a worktree-style `workDir` (!= the process cwd) must probe AND spawn
     // under that same directory.
     val tmpProjects = TempDirs.dir()
-    val flowWorkDir =
-      TempDirs.dir() // stands in for a worktree checkout, != os.pwd
-    assert(
-      flowWorkDir != os.pwd,
-      "test setup requires a workDir distinct from the process cwd"
-    )
+    val flowWorkDir = TempDirs.dir() // stands in for a worktree checkout
     val slug = ClaudeBackend.cwdSlug(flowWorkDir)
     os.makeDir.all(tmpProjects / slug)
     os.write(tmpProjects / slug / s"${SessionId.value(freshSid)}.jsonl", "")
 
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     SupervisedBackend.using(
-      new ClaudeBackend(
-        runner,
-        projectsDir = tmpProjects,
-        workDir = flowWorkDir
-      )
+      claudeBackend(runner, projectsDir = tmpProjects, workDir = flowWorkDir)
     ): backend =>
       assertEquals(backend.workDir, flowWorkDir)
       backend.sessions.rehydrate(freshSid, freshSid.onWire)
@@ -625,19 +637,6 @@ class ClaudeBackendTest extends munit.FunSuite:
         "spawn must use the SAME workDir the probe just read"
       )
 
-    // The bare-construction default (`workDir = os.pwd`) probes the WRONG
-    // directory when the process cwd differs from the flow's workDir —
-    // exactly the bug `ClaudeAgents.default` must avoid by passing
-    // `workDir = wiring.workDir` explicitly.
-    SupervisedBackend.using(
-      new ClaudeBackend(new SpawnStubCliRunner(Nil), projectsDir = tmpProjects)
-    ): backend =>
-      backend.sessions.rehydrate(freshSid, freshSid.onWire)
-      assertEquals(
-        backend.sessions.dispatchFor(freshSid).asTurnDispatch,
-        TurnDispatch.Fresh
-      )
-
   test(
     "an unrecorded id resumes as an earlier attempt's when its transcript is present"
   ):
@@ -651,7 +650,7 @@ class ClaudeBackendTest extends munit.FunSuite:
     os.makeDir.all(tmpProjects / slug)
     os.write(tmpProjects / slug / s"${SessionId.value(freshSid)}.jsonl", "")
     SupervisedBackend.using(
-      new ClaudeBackend(
+      claudeBackend(
         new SpawnStubCliRunner(Nil),
         projectsDir = tmpProjects,
         workDir = cwd
@@ -668,7 +667,7 @@ class ClaudeBackendTest extends munit.FunSuite:
     val tmpProjects = TempDirs.dir()
     val cwd = TempDirs.dir()
     SupervisedBackend.using(
-      new ClaudeBackend(
+      claudeBackend(
         new SpawnStubCliRunner(Nil),
         projectsDir = tmpProjects,
         workDir = cwd
@@ -684,7 +683,7 @@ class ClaudeBackendTest extends munit.FunSuite:
     val missing = TempDirs.dir() / "no-such-dir"
     val cwd = TempDirs.dir()
     SupervisedBackend.using(
-      new ClaudeBackend(
+      claudeBackend(
         new SpawnStubCliRunner(Nil),
         projectsDir = missing,
         workDir = cwd

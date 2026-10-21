@@ -45,5 +45,10 @@ class TestFlowContext(
     wiredGit.getOrElse(stub("git"))
   lazy val gh: GitHubTool = wiredGh.getOrElse(stub("gh"))
   lazy val fs: FsTool = stub("fs")
+  private[orca] lazy val gateShell: orca.review.GateShell =
+    orca.review.OsGateShell(
+      orca.effect.Processes.ambient,
+      orca.effect.FileSystem.ambient
+    )
 
   private[orca] def emit(event: OrcaEvent): Unit = dispatcher.onEvent(event)

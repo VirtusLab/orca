@@ -95,7 +95,7 @@ Flows are ordinary Scala scripts. For example, the below one plans, implements
 each task with a review, and opens a PR:
 
 ```scala
-//> using scala 3.9.0
+//> using scala 3.10.0
 //> using dep "org.virtuslab::orca:0.2.0"
 //> using jvm 21
 

@@ -1,9 +1,7 @@
 package orca.agents
 
-import orca.backend.AgentBackend
 import orca.events.{OrcaEvent, OrcaListener}
-
-import org.slf4j.LoggerFactory
+import orca.safe.{Logger, Ref}
 
 /** Says, when a turn asks a backend for a restriction it cannot mechanically
   * apply, that the restriction is not mechanical — the runtime's only consumer
@@ -15,64 +13,69 @@ import org.slf4j.LoggerFactory
   * says in plain words what the agent may still do, and the WARN behind it
   * carries the cell's rationale and level names for whoever is diagnosing.
   *
-  * One instance per backend, held by [[AgentBackend]] and shared with any
-  * sibling backend derived from it, so a twenty-reviewer fan-out says each
-  * thing once.
+  * One instance per backend, held by [[orca.backend.AgentBackend]] and shared
+  * with any sibling backend derived from it, so a twenty-reviewer fan-out says
+  * each thing once.
   *
   * Said at the first turn that asks, not at run start: a flow picks a turn's
   * `ToolSet` when it makes the call, so the run header cannot know the tiers.
   */
 private[orca] final class EnforcementNotice:
 
+  // Shared across a fan-out's reviewer forks, so neither method-local nor
+  // `caps.Mutable` (fails separation checking there); no I/O in the update, so
+  // no actor.
   /** Sentences already said. Keyed on the sentence rather than the cell, so a
     * different tier, dispatch or approval list repeats the notice exactly when
     * it changes the wording.
     */
-  private val said =
-    java.util.concurrent.ConcurrentHashMap.newKeySet[String]()
+  private val said: Ref[Set[String]] = Ref(Set.empty)
 
   /** Report `config`'s unmet restriction for the turn about to run as
-    * `dispatch`, unless the same sentence has already been said.
+    * `dispatch` on backend `tag`, unless the same sentence has already been
+    * said. `cell` is backend `tag`'s cell for `config` and `dispatch`;
+    * `freshCell` the one for `config` on a fresh dispatch.
     *
     * Reporting, not refusing: a weaker gate is a documented property of the
     * backend, and a restricted turn's prompt still carries
     * [[orca.backend.SystemPromptComposer.ReadOnlyTurn]].
     */
-  def announceShortfall[B <: BackendTag](
-      backend: AgentBackend[B],
+  def announceShortfall(
+      tag: BackendTag,
       config: AgentConfig,
       dispatch: TurnDispatch,
+      cell: EnforcementCell,
+      freshCell: EnforcementCell,
       events: OrcaListener
   ): Unit =
-    val cell =
-      backend.enforcementCell(config.tools, config.autoApprove, dispatch)
     EnforcementNotice
-      .summary(backend, config, cell, dispatch)
+      .summary(tag, config, dispatch, cell, freshCell)
       .foreach: summary =>
-        if said.add(summary) then
+        if said.modify(s => (s + summary, !s.contains(summary))) then
           events.onEvent(OrcaEvent.Caveat(summary))
-          EnforcementNotice.log.warn("{} — {}", summary, cell.rationale)
+          EnforcementNotice.log.warn(s"$summary — ${cell.rationale}")
 
 private[orca] object EnforcementNotice:
 
-  private val log = LoggerFactory.getLogger(classOf[EnforcementNotice])
+  private val log = Logger(classOf[EnforcementNotice].getName)
 
   /** The sentence to say, or `None` when the turn asked for nothing this
     * backend had to encode, or got what it asked for.
     */
   private def summary(
-      backend: AgentBackend[?],
+      tag: BackendTag,
       config: AgentConfig,
+      dispatch: TurnDispatch,
       cell: EnforcementCell,
-      dispatch: TurnDispatch
+      freshCell: EnforcementCell
   ): Option[String] =
     for
       request <- unmetRequest(
         config,
-        turnWording(backend, config, cell, dispatch)
+        turnWording(config, dispatch, cell, freshCell)
       )
       consequence <- consequenceOf(cell.level)
-    yield s"${backend.tag} cannot $request — $consequence"
+    yield s"$tag cannot $request — $consequence"
 
   /** What the caller asked this backend to withhold. The two axes a caller can
     * restrict on: the tier withholds the write tools (or, on `NoTools`, every
@@ -89,7 +92,7 @@ private[orca] object EnforcementNotice:
         Some(s"stop $turn from calling tools")
       case ToolSet.Full =>
         config.autoApprove match
-          case AutoApprove.All => None
+          case AutoApprove.All     => None
           case AutoApprove.Only(_) =>
             Some(s"hold $turn to the tools it was asked to auto-approve")
 
@@ -98,7 +101,7 @@ private[orca] object EnforcementNotice:
     */
   private def consequenceOf(level: Enforcement): Option[String] =
     level match
-      case Enforcement.Hard => None
+      case Enforcement.Hard       => None
       case Enforcement.PromptOnly =>
         Some("only the turn's own prompt asks it not to")
       case Enforcement.SandboxApprox =>
@@ -114,16 +117,12 @@ private[orca] object EnforcementNotice:
     * change.
     */
   private def turnWording(
-      backend: AgentBackend[?],
       config: AgentConfig,
+      dispatch: TurnDispatch,
       cell: EnforcementCell,
-      dispatch: TurnDispatch
+      freshCell: EnforcementCell
   ): String =
-    val weakenedByResuming = cell.level.weakerThan(
-      backend
-        .enforcementCell(config.tools, config.autoApprove, TurnDispatch.Fresh)
-        .level
-    )
+    val weakenedByResuming = cell.level.weakerThan(freshCell.level)
     dispatch match
       case TurnDispatch.Resumed if weakenedByResuming =>
         s"a resumed ${config.tools} turn"

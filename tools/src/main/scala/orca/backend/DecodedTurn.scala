@@ -5,20 +5,11 @@ import orca.backend.mcp.AskUserBridge
 import orca.util.{OrcaDebug, TerminalControl}
 import orca.{AgentTurnFailed, OrcaInteractiveCancelled}
 
-import ox.{
-  Fork,
-  Ox,
-  UnsupervisedFork,
-  discard,
-  fork,
-  forkDiscard,
-  forkUnsupervised,
-  pipe
-}
-import ox.channels.{Channel, ChannelClosed}
-
-import java.util.concurrent.atomic.AtomicBoolean
-import scala.util.control.NonFatal
+import orca.safe.concurrency
+import orca.safe.concurrency.{fork, forkDiscard, forkUnsupervised}
+import orca.safe.prelude.{NonFatal, discard, pipe}
+import ox.{Fork, Ox, UnsupervisedFork}
+import ox.channels.Channel
 
 /** A [[LiveTurn]] over a line [[StreamSource]], decoded by a [[LineDecoder]].
   *
@@ -47,39 +38,36 @@ private[backend] object DecodedTurn:
       spec: DecodedTurnSpec,
       decoder: LineDecoder[B, S]
   )(using Ox): LiveTurn[B] =
-    val channel = Channel.buffered[TurnEvent](ChannelCapacity)
+    val channel = concurrency.bufferedChannel[TurnEvent](ChannelCapacity)
     def neutral(event: NeutralEvent): Unit =
       channel.sendOrClosed(event).discard
     spec.openingPrompt.foreach(p => neutral(TurnEvent.UserMessage(p)))
-    val cancelled = new AtomicBoolean(false)
     val stderr = fork(drainStderr(source, decoder, neutral))
     spec.askUser match
       case AskUserChannel.Mcp(session) =>
         forkDiscard(drainQuestions(session.bridge, neutral))
       case AskUserChannel.Unavailable | AskUserChannel.Native => ()
     val reader = forkUnsupervised(
-      Reader(source, decoder, channel, cancelled, stderr).run()
+      Reader(source, decoder, channel, stderr).run()
     )
-    Live(spec, source, channel, cancelled, reader)
+    Live(spec, source, channel, reader)
 
   private type Outcome[B <: BackendTag] =
     Either[OrcaInteractiveCancelled | AgentTurnFailed, AgentResult[B]]
 
+  /** Only `cancel` closes `channel` before the reader's own `finally`, so the
+    * reader takes a closed channel to mean the turn was cancelled.
+    */
   private final class Live[B <: BackendTag](
       spec: DecodedTurnSpec,
       source: StreamSource,
       channel: Channel[TurnEvent],
-      cancelled: AtomicBoolean,
       reader: UnsupervisedFork[Outcome[B]]
   ) extends LiveTurn[B]:
     def outputSchema: Option[String] = spec.outputSchema
     def canAskUser: Boolean = spec.askUser.isAvailable
 
-    val events: Iterator[TurnEvent] =
-      Iterator
-        .continually(channel.receiveOrClosed())
-        .takeWhile(!_.isInstanceOf[ChannelClosed])
-        .collect { case e: TurnEvent => e }
+    val events: Iterator[TurnEvent] = concurrency.receiveUntilClosed(channel)
 
     /** Every failure of a turn that ran surfaces as [[AgentTurnFailed]]: the
       * wire session may already exist, so a retry against the same id would
@@ -93,18 +81,19 @@ private[backend] object DecodedTurn:
         case Left(c: OrcaInteractiveCancelled) => Left(c)
         case Left(f: AgentTurnFailed)          => throw f
 
-    /** Stops the source, frees a reader blocked on a full channel (events
-      * already buffered are still delivered), and waits for the reader, so its
-      * unsettled-end handling completes before the turn scope ends. SIGINT and
-      * the forcible kill are back to back: this same path runs in the routine
-      * `finally` of every turn, where the process has already exited. Never
-      * called from the reader, which would then wait for itself.
+    /** Closes the channel, which marks the turn cancelled and frees a reader
+      * blocked on a full channel (events already buffered are still delivered),
+      * before stopping the source, so the reader steps no line read after the
+      * cancel; then waits for the reader, so its unsettled-end handling
+      * completes before the turn scope ends. SIGINT and the forcible kill are
+      * back to back: this same path runs in the routine `finally` of every
+      * turn, where the process has already exited. Never called from the
+      * reader, which would then wait for itself.
       */
     def cancel(): Unit =
-      cancelled.set(true)
+      channel.doneOrClosed().discard
       source.interrupt()
       source.destroyForcibly()
-      channel.doneOrClosed().discard
       reader.join().discard
 
   /** Where the reader is in the message grammar. */
@@ -123,10 +112,12 @@ private[backend] object DecodedTurn:
       source: StreamSource,
       decoder: LineDecoder[B, S],
       channel: Channel[TurnEvent],
-      cancelled: AtomicBoolean,
       stderr: Fork[StderrLog]
   )(using Ox):
     private val name = decoder.backendName
+
+    // Before this reader's `finally`, only `Live.cancel` closes the channel.
+    private def cancelled: Boolean = channel.isClosedForSend
 
     /** Returns the outcome and never throws, so `join` always yields one. */
     def run(): Outcome[B] =
@@ -136,10 +127,10 @@ private[backend] object DecodedTurn:
           try
             for line <- source.lines do
               OrcaDebug.traceStream(name, "stdout", line)
-              if !cancelled.get() then
+              if !cancelled then
                 progress = progress.phase match
                   case Phase.Done(_) => progress
-                  case Phase.BetweenMessages() | Phase.InMessage() =>
+                  case _: (Phase.BetweenMessages[?] | Phase.InMessage[?]) =>
                     step(progress, line)
             None
           catch
@@ -148,8 +139,8 @@ private[backend] object DecodedTurn:
               Some(e)
         val stderrLog = stderr.join()
         progress.phase match
-          case Phase.Done(_) => ()
-          case Phase.BetweenMessages() | Phase.InMessage() =>
+          case Phase.Done(_)                                      => ()
+          case _: (Phase.BetweenMessages[?] | Phase.InMessage[?]) =>
             decoder.onUnsettledEnd()
         outcome(progress, readError, stderrLog)
       catch
@@ -236,18 +227,18 @@ private[backend] object DecodedTurn:
             else ctx.mkString(s"$message\n  ", "\n    ", "")
           )
       progress.phase match
-        case Phase.Done(Settled.Succeeded(result)) => Right(result)
+        case Phase.Done(Settled.Succeeded(result))      => Right(result)
         case Phase.Done(Settled.Failed(message, debit)) =>
           Left(new AgentTurnFailed(withContext(message), debit))
-        case Phase.BetweenMessages() | Phase.InMessage() =>
+        case _: (Phase.BetweenMessages[?] | Phase.InMessage[?]) =>
           val debit = decoder.failedTurnDebit(progress.state)
           // A cancel's kill can make the in-flight read throw rather than EOF,
           // so `cancelled` is checked first: a Ctrl-C is never a failure.
-          if cancelled.get() then Left(new OrcaInteractiveCancelled(debit))
+          if cancelled then Left(new OrcaInteractiveCancelled(debit))
           else
             readError match
               case Some(e) => Left(new AgentTurnFailed(describe(e), debit, e))
-              case None =>
+              case None    =>
                 Left(
                   new AgentTurnFailed(
                     withContext(unsettledExit(source.tryExitCode)),
@@ -263,7 +254,7 @@ private[backend] object DecodedTurn:
         case Some(0) =>
           s"$name exited cleanly but never sent ${decoder.terminalMessageNoun}"
         case Some(code) => s"$name exited with code $code"
-        case None =>
+        case None       =>
           s"$name's output ended without ${decoder.terminalMessageNoun}, " +
             "while the process was still running"
 

@@ -29,7 +29,7 @@ private[orca] object TerminalControl:
         case Osc                     => i = skipStringControl(text, i + 1)
         case Dcs | Sos | Pm | Apc    => i = skipStringControl(text, i + 1)
         case c if isUnsafeControl(c) => i += 1
-        case c =>
+        case c                       =>
           val _ = out.append(c)
           i += 1
     out.toString

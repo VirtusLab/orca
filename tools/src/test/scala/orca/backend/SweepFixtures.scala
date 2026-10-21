@@ -1,7 +1,8 @@
 package orca.backend
 
+import orca.effect.Processes
 import orca.events.{OrcaEvent, OrcaListener}
-import orca.subprocess.{OsProcCliRunner, PipedCliProcess}
+import orca.subprocess.{CliRunner, CookieScan, OsProcCliRunner, PipedCliProcess}
 
 import java.util.concurrent.atomic.AtomicReference
 
@@ -15,11 +16,13 @@ trait SweepFixtures:
   protected def onLinux(
       name: String
   )(body: => Any)(using munit.Location): Unit =
-    if EnvCookieSweep.supported then test(name)(body)
+    if CookieScan.supported then test(name)(body)
     else test(name.ignore)(body)
 
+  protected val runner: CliRunner = OsProcCliRunner(Processes.ambient)
+
   protected def spawn(script: String): PipedCliProcess =
-    OsProcCliRunner.spawnPiped(
+    runner.spawnPiped(
       Seq("bash", "-c", script),
       env = Map.empty,
       cwd = os.pwd

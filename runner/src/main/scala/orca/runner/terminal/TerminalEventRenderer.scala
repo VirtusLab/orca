@@ -94,7 +94,7 @@ private[terminal] class TerminalEventRenderer(
       // collapsed and truncated, in the `●` style — ADR 0008 requires it stay
       // visible since the streamed JSON was suppressed.
       announcement match
-        case Announcement.Silent => ()
+        case Announcement.Silent    => ()
         case Announcement.Say(text) =>
           val who = attribution(agent)
           output.log(

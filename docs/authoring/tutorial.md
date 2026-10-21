@@ -10,7 +10,7 @@ Save the file as `implement.sc`. Every flow starts with the same header, which
 pins the Scala version, the Orca dependency and the JVM:
 
 ```scala
-//> using scala 3.9.0
+//> using scala 3.10.0
 //> using dep "org.virtuslab::orca:0.2.0"
 //> using jvm 21
 

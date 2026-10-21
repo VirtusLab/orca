@@ -1,10 +1,7 @@
 package orca.tools
 
 import com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec
-import com.github.plokhotnyuk.jsoniter_scala.macros.{
-  ConfiguredJsonValueCodec,
-  JsonCodecMaker
-}
+import orca.json.JsonCodec
 
 // Wire-format DTOs for the `gh`/`git` JSON that `OsGitHubTool` parses. Kept
 // separate from the public GitHubTool contract: they mirror the GitHub CLI/API
@@ -18,16 +15,16 @@ private[tools] case class GhCheck(
     conclusion: Option[String] = None,
     state: Option[String] = None,
     name: Option[String] = None
-) derives ConfiguredJsonValueCodec
+) derives JsonCodec
 
 private[tools] case class GhCheckRollup(
     statusCheckRollup: List[GhCheck]
-) derives ConfiguredJsonValueCodec
+) derives JsonCodec
 
 private[tools] case class GhCommentJson(
     body: String,
     user: GhUserJson
-) derives ConfiguredJsonValueCodec
+) derives JsonCodec
 
 /** Comment JSON with its GitHub-issued numeric id, used by [[OsGitHubTool]] for
   * the PATCH path in `upsertComment`. Callers see the id-free [[Comment]] type.
@@ -36,7 +33,7 @@ private[tools] case class GhIdentifiedCommentJson(
     id: Long,
     body: String,
     user: GhUserJson
-) derives ConfiguredJsonValueCodec
+) derives JsonCodec
 
 /** Minimal PR fields from `gh pr list --json number,url`, used by
   * [[OsGitHubTool.findOpenPr]] to map a head branch to an open PR. The handle
@@ -45,7 +42,7 @@ private[tools] case class GhIdentifiedCommentJson(
 private[tools] case class GhPrListJson(
     number: Int,
     url: String
-) derives ConfiguredJsonValueCodec
+) derives JsonCodec
 
 /** What `gh repo view --json url` returns for the repository gh resolves from
   * the checkout's remotes: the browser URL, which carries host, owner and repo
@@ -53,10 +50,9 @@ private[tools] case class GhPrListJson(
   */
 private[tools] case class GhRepoViewJson(
     url: String
-) derives ConfiguredJsonValueCodec
+) derives JsonCodec
 
-private[tools] case class GhUserJson(login: String)
-    derives ConfiguredJsonValueCodec
+private[tools] case class GhUserJson(login: String) derives JsonCodec
 
 private[tools] case class GhIssueJson(
     title: String,
@@ -65,12 +61,12 @@ private[tools] case class GhIssueJson(
     body: Option[String] = None,
     user: GhUserJson,
     state: String
-) derives ConfiguredJsonValueCodec
+) derives JsonCodec
 
 private[tools] given ghCommentListCodec: JsonValueCodec[List[GhCommentJson]] =
-  JsonCodecMaker.make
+  JsonCodec.make
 private[tools] given ghIdentifiedCommentListCodec
     : JsonValueCodec[List[GhIdentifiedCommentJson]] =
-  JsonCodecMaker.make
+  JsonCodec.make
 private[tools] given ghPrListCodec: JsonValueCodec[List[GhPrListJson]] =
-  JsonCodecMaker.make
+  JsonCodec.make

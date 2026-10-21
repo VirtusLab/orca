@@ -1,6 +1,7 @@
 package orca.shell.actions
 
 import orca.OrcaDir
+import orca.effect.FileSystem
 import orca.StackSettings
 import orca.settings.{SettingsFile, SettingsScope, StackKey}
 import orca.shell.ui.ShellOutput
@@ -29,7 +30,7 @@ private[shell] object StackAction:
   def status(workDir: os.Path): Either[String, StackStatus] =
     val path = OrcaDir.settingsPath(workDir)
     try
-      OrcaDir.assertNoOrcaSymlinks(workDir, path)
+      OrcaDir(FileSystem.ambient).assertNoOrcaSymlinks(workDir, path)
       if !os.exists(path) then Right(StackStatus.NoSettings)
       else
         val content = os.read(path)
@@ -51,7 +52,7 @@ private[shell] object StackAction:
     * run re-triggers discovery.
     */
   def clear(workDir: os.Path, content: String): Unit =
-    OrcaDir
+    OrcaDir(FileSystem.ambient)
       .settingsFile(workDir)
       .replace(SettingsFile.stripStackLines(content))
 

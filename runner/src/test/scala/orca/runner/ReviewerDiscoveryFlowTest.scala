@@ -2,8 +2,7 @@ package orca.runner
 
 import orca.ReportedFailure
 import orca.{ConfigHome, FlowContext, OrcaDir, StackSettings}
-import orca.testkit.{GitRepo, TempDirs, currentBranch}
-import orca.tools.OsGitTool
+import orca.testkit.{Effects, GitRepo, TempDirs, currentBranch}
 
 import java.util.concurrent.atomic.AtomicReference
 
@@ -51,12 +50,12 @@ class ReviewerDiscoveryFlowTest extends munit.FunSuite:
       "---\nname: orca\n---\n\n## Scope\n",
       createFolders = true
     )
-    val startBranch = new OsGitTool(workDir).currentBranch()
+    val startBranch = Effects.gitTool(workDir).currentBranch()
     val e = intercept[ReportedFailure]:
       driveFlow(workDir)(fail("the body must not run"))
     assert(e.cause.getMessage.contains("description:"), e.cause.getMessage)
     // The abort precedes `ensureClean` and any branch creation.
-    assertEquals(new OsGitTool(workDir).currentBranch(), startBranch)
+    assertEquals(Effects.gitTool(workDir).currentBranch(), startBranch)
 
   test("a symlinked .orca/reviewers directory aborts before the branch"):
     // `os.isDir` follows links, so the per-file check cannot see this; the
@@ -66,11 +65,11 @@ class ReviewerDiscoveryFlowTest extends munit.FunSuite:
     writeReviewer(outside, "from outside the tree")
     os.makeDir.all(OrcaDir.rootPath(workDir))
     os.symlink(OrcaDir.reviewersPath(workDir), outside)
-    val startBranch = new OsGitTool(workDir).currentBranch()
+    val startBranch = Effects.gitTool(workDir).currentBranch()
     val e = intercept[ReportedFailure]:
       driveFlow(workDir)(fail("the body must not run"))
     assert(e.cause.getMessage.contains("symlink"), e.cause.getMessage)
-    assertEquals(new OsGitTool(workDir).currentBranch(), startBranch)
+    assertEquals(Effects.gitTool(workDir).currentBranch(), startBranch)
 
   private def writeReviewer(dir: os.Path, description: String): Unit =
     os.write(

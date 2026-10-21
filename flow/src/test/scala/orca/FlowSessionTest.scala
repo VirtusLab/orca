@@ -1,5 +1,6 @@
 package orca
 
+import orca.effect.FileSystem
 import munit.FunSuite
 import orca.backend.{
   AgentResult,
@@ -222,7 +223,7 @@ class FlowSessionTest extends FunSuite:
       listeners: List[orca.events.OrcaListener] = Nil
   ): TestRun =
     val dir = TempDirs.dir()
-    val store = ProgressStore.default(dir, RunKey.of("p"))
+    val store = ProgressStore.default(FileSystem.ambient, dir, RunKey.of("p"))
     val sessionStore = new TestSessionStore
     given WorkspaceWrite = WorkspaceWrite.unsafe
     store.writeHeader(
@@ -243,7 +244,7 @@ class FlowSessionTest extends FunSuite:
           resultJson = RawJson("null")
         )
       )
-    val git = new orca.tools.OsGitTool(dir)
+    val git = orca.testkit.Effects.gitTool(dir)
     TestRun(
       new TestFlowControl(store, sessionStore),
       new TestFlowContext(
@@ -745,7 +746,7 @@ class FlowSessionTest extends FunSuite:
     // A real repo, unlike `makeRun`'s bare temp dir, so `headCommit()` has
     // something to report.
     val dir = GitRepo.seeded()
-    val store = ProgressStore.default(dir, RunKey.of("p"))
+    val store = ProgressStore.default(FileSystem.ambient, dir, RunKey.of("p"))
     val sessionStore = new TestSessionStore
     store.writeHeader(
       ProgressHeader(
@@ -773,7 +774,7 @@ class FlowSessionTest extends FunSuite:
         resultJson = RawJson("null")
       )
     )
-    val git = new orca.tools.OsGitTool(dir)
+    val git = orca.testkit.Effects.gitTool(dir)
     val run = TestRun(
       new TestFlowControl(store, sessionStore),
       new TestFlowContext(

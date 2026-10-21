@@ -1,22 +1,22 @@
 package orca.events
 
-import java.util.concurrent.atomic.AtomicReference
+import orca.safe.Ref
 
 /** Listener that counts `ToolDenied` events per tool, with the names of the
   * agents that were denied it, for an end-of-run summary.
   */
 class DeniedToolTracker extends OrcaListener:
 
-  private val tools: AtomicReference[DeniedTools] =
-    AtomicReference(DeniedTools.empty)
+  // Same shape as `CostTracker.state`: concurrent emitters, a pure fold.
+  private val tools: Ref[DeniedTools] = Ref(DeniedTools.empty)
 
   def onEvent(event: OrcaEvent): Unit = event match
     case d: OrcaEvent.ToolDenied =>
-      val _ = tools.updateAndGet(_.add(d))
+      tools.update(_.add(d))
     case _ => ()
 
   /** [[DeniedTools.summary]] of the events seen so far. */
-  def summary: String = tools.get().summary
+  def summary: String = tools.get.summary
 
 /** Denied tool calls counted per tool, with the names of the agents that were
   * denied it.

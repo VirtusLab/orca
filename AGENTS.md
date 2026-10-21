@@ -16,28 +16,33 @@ generation.
 ```
 orca/
 ├── build.sbt / project/
+├── core/       # effect capabilities + their implementations, facades for safe-mode code, JsonData
 ├── tools/      # tool traits + os-backed impls (git/gh/fs), internal LLM SPI + session durability, InStage, events, subprocess
 ├── flow/       # stage/display/fail + FlowContext/FlowControl; orca.{plan,review,pr,progress}
 ├── claude/ codex/ gemini/ opencode/ pi/   # one module per coding-agent backend
-├── runner/     # flow() entry, DefaultFlowContext/DefaultFlowControl, FlowLifecycle, terminal UI
+├── lifecycle/  # FlowLifecycle: a run's setup, recovery and teardown; --worktree resolution
+├── runner/     # flow() entry, DefaultFlowContext/DefaultFlowControl, wiring, terminal UI
 └── shell/      # `orca-shell`, the `orca` CLI's interactive front-end (ADR 0021)
 ```
 
 Dependency graph:
 
 ```
-tools   (standalone)
+core    (standalone)
+tools                               → core
   ├── flow                          → tools
+  │     └── lifecycle               → tools + flow
   ├── claude / codex / gemini /
   │     opencode / pi               → tools
-  ├── runner                        → tools + flow + all five backends
-  └── shell                         → runner (published `orca`)
+  ├── runner                        → tools + flow + lifecycle + all five backends
+  └── shell                         → runner (published `orca`) + lifecycle
 ```
 
 The runner module owns the `flow` entry point (`package orca`) and wires
 defaults via `DefaultFlowContext` and `DefaultFlowControl` (`package orca.runner`); the stage
-setup/teardown/recovery state machine is `orca.runner.FlowLifecycle`. The
-terminal UI lives in `orca.runner.terminal`, behind an `Interaction`, so
+setup/teardown/recovery state machine is `orca.lifecycle.FlowLifecycle`, in the
+`lifecycle` module; what runner and shell use from it is `private[orca]`.
+The terminal UI lives in `orca.runner.terminal`, behind an `Interaction`, so
 swapping it for a Slack or HTTP equivalent is one substitution at the call
 site rather than rewiring modules.
 
@@ -48,13 +53,76 @@ backend-agnostic role accessors (ADR 0020) — `stage`/`display`/`fail`,
 Implementations live in
 focused subpackages: `orca.tools` (os-backed git/gh/fs impls + their traits),
 `orca.gitref` (validated branch names and commit hashes, and `Head`),
-`orca.json` (`JsonData`, `RawJson`, whole-file `JsonFile` documents),
+`orca.json` (`JsonData` and `JsonCodec` in core; `RawJson`, whole-file
+`JsonFile` documents),
 `orca.agents` + `orca.backend` (LLM SPI, `SessionSupport`, per-backend
 decoders; the SPI is `private[orca]` or `private[backend]`, so a new harness
 is added in orca itself), `orca.subprocess` (subprocess shim), `orca.events`
-(event bus), one `orca.backend.<backend>` per coding agent, and `orca.runner` /
-`orca.runner.terminal` (wiring + terminal UI). The flow module adds
+(event bus), one `orca.backend.<backend>` per coding agent, `orca.lifecycle`
+(run setup, recovery and teardown), and `orca.runner` / `orca.runner.terminal`
+(wiring + terminal UI). The flow module adds
 `orca.{plan,review,pr,progress}`.
+
+### Safe mode
+
+Modules are moving, bottom-up, onto Scala's safe mode, where code may only
+reference safe-mode or `@assumeSafe` definitions. The main sources of `tools`,
+`flow`, `lifecycle` and the five backends compile with
+`-language:experimental.safe` (their tests do not); `runner` and `shell` are
+plain (wiring, terminal, logging, file locks). `core` is the trusted base, and the only module where
+`@assumeSafe` appears (`AssumeSafeScopeTest`):
+
+- Capabilities (`orca.effect`): `FileSystem`, `Processes`, `Network`. Each
+  is a `caps.SharedCapability` whose members perform the effect; its
+  `ambient` mint is `private[orca]` and not `@assumeSafe`, so only wiring and
+  tests create one.
+- Facades over libraries safe code can't reference: `orca.safe.{prelude,
+  Logger, concurrency, mcp, Ref}`, `orca.json.{JsonData, JsonCodec,
+  JsonSchemas}`.
+  Safe code uses `derives JsonCodec` where plain code uses `derives
+  ConfiguredJsonValueCodec`.
+- Effect implementations (`QuietProc`, `OsPipedSubProcess`, `LocalServer`,
+  `JdkHttpClient`, `CookieScan`) are not `@assumeSafe`; safe code reaches them
+  through a capability only (`SafeModeExposureTest`). A handle a capability
+  returns (`PipedCliProcess`, `HttpClient`) is untracked: code holding one
+  performs its effects without naming the capability.
+
+In safe modules, effectful classes (`OsGitTool`, `Worktrees`, `OrcaDir`,
+`JsonFile`, `OsFsTool`, the backends) take capabilities as constructor
+parameters; wiring (`flowEntry`, the `*Agents` objects, the shell) builds them
+with `X.ambient`. `lifecycle` takes the terminal (`tty`, `ask`), the PATH
+probe and the worktree file lock (`WorktreeLock`) as values from `flowEntry`. Safe code can't turn a class holding a capability into a
+plain trait such as `AgentBackend` or `CliRunner`, so each safe backend's
+`*Agents` object, and its `*AgentsTest`, lives in `runner`, in the backend's
+package (`orca.backend.<backend>`). A session probe that reads the disk is
+built there too and passed to the backend (`CodexBackend.rolloutProbe`), and
+so is a factory for the `GitTool` the backend reads through: a backend starts
+processes only through its `CliRunner`. A probe or factory that needs a
+directory takes it as an argument, and the backend passes its own `workDir`.
+
+Safe mode does not check member calls on values, so it catches ambient
+effects reached by accident; it is not a sandbox. `JsonData` derives schemas
+with `SchemaDerivation`, because tapir's Magnolia `Schema.derived` fails
+capture checking. It ignores tapir's schema annotations, and the
+`*SchemaParityTest` suites pin its output to tapir's; `SchemaParityCoverageTest`
+fails when a derivation site has no parity entry.
+
+The prelude's `pipe` and `tap` are inline, and Scala 3.10.0 types an inline
+argument's proxy without its captures: on a value that captures a capability
+they can fail capture checking ("Found `X^{fs}`, Required `X`"). Use a named
+`val` there instead.
+
+In 3.10.0, `List.maxByOption` takes a pure function, so a key that uses a
+capability fails ("capability fs cannot flow into capture set {}"): `map` to
+`(value, key)` pairs first, then `maxByOption(_._2)`.
+
+Scala 3.10.0's `SafeRefs.checker` shares a mutable flag across compiler
+instances in one JVM, so concurrent safe-mode compiles report false "Cannot
+refer to ..." errors; `build.sbt` compiles one module at a time. The flag can
+stay stuck in a long-lived sbt server: if those errors appear, `sbt shutdown`.
+
+Migrating a module: sbt reports only 100 errors; `set ThisBuild / maxErrors
+:= 2000` shows them all.
 
 ## The stage-bound runtime
 
@@ -385,11 +453,16 @@ with a test pinning the observed wire shape.
 ### Scala style
 
 - Braceless syntax; explicit return types on every public member.
-- No class-level `var`s outside an Ox actor's state. Mutable state whose
-  updates also write to the terminal or files lives in an actor; other
-  mutable state stays in method bodies, or in an `AtomicReference` over an
-  immutable value updated by a pure function (`CostTracker`,
-  `DeniedToolTracker`).
+- Remove mutable state first: use a fork's return value, a fold, or state a
+  channel or scope already holds. No class-level `var`s outside an Ox actor's
+  state. Mutable state whose updates also write to the terminal or files lives
+  in an actor; other mutable state stays in method bodies, or, when shared
+  across threads, in an `AtomicReference` over an immutable value updated by a
+  pure function (`CostTracker`, `DeniedToolTracker`) — `orca.safe.Ref` in safe
+  modules. Safe mode rejects `var` fields, so there an actor's state, and
+  state confined to one thread (`StageFrames`), is a `Ref` too. Never `caps.SharedCapability` + `caps.Stateful` for it: that tracks
+  nothing. `@volatile` and `synchronized` still compile in safe mode, so review
+  is the gate.
 - Opaque-type aliases for domain string labels (e.g. `Title`, `SessionId`).
 - Recoverable failures return `Either[E, T]` where `E <: OrcaFlowException`;
   system failures throw. Use Ox's `.orThrow` at the call site when the
@@ -558,7 +631,7 @@ number, change it only additively (ADR 0025).
   [ADR 0010](adr/0010-prompts-and-helpers-convention.md): sibling
   `XxxPrompts` object + `instructions: String = …` parameter.
 - Subprocesses launched from a tool **must** capture stderr — go through
-  [`subprocess.QuietProc.call`](tools/src/main/scala/orca/subprocess/QuietProc.scala)
+  [`effect.Processes`](core/src/main/scala/orca/effect/Processes.scala)
   or a `CliRunner`. os-lib defaults `os.proc(...).call(...)`'s `stderr` to
   `Inherit`, which lets subprocess output bypass the renderer's StatusBar
   and tear the spinner row. `CliRunner.spawnPiped` always pipes stderr, so
@@ -567,8 +640,9 @@ number, change it only additively (ADR 0025).
   run, agent session) and `TtyProbe`, which inherits the fd it probes.
 - Every `spawnPiped` child carries a unique `ORCA_TURN_COOKIE`
   (`orca.subprocess.EnvCookie`). `SubprocessSpawn.open` registers `EnvCookieSweep`
-  with the turn scope, so at turn end it scans `/proc/*/environ` for the
-  agent's cookie and REPORTS what is still running — the backstop for work an
+  with the turn scope, so at turn end it asks `CliRunner.carrying` (a
+  `/proc/*/environ` scan) for the agent's cookie and REPORTS what is still
+  running — the backstop for work an
   agent detached from orca's process tree, which no parent-link teardown can
   reach. opencode's turns spawn nothing (they run on the per-run server), so
   they are not swept; the server's cookie is swept when the server stops.

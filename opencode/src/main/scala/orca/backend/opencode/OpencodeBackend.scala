@@ -1,9 +1,7 @@
 package orca.backend.opencode
 
-import com.github.plokhotnyuk.jsoniter_scala.core.{
-  readFromString,
-  writeToString
-}
+import orca.json.JsonCodec
+import orca.effect.Network
 import orca.backend.{
   AskUserChannel,
   LiveTurn,
@@ -31,7 +29,7 @@ import orca.subprocess.CliRunner
 import orca.backend.opencode.OpencodeApi.{SessionCreateBody, SessionCreated}
 import ox.Ox
 
-import scala.util.control.NonFatal
+import orca.safe.prelude.NonFatal
 
 /** Seam between the backend and the shared `opencode serve` owner — lets tests
   * substitute a fake without a real process. `http` may spawn on first call.
@@ -60,10 +58,17 @@ private[orca] object OpencodeBackend:
       cli: CliRunner,
       workDir: os.Path,
       events: OrcaListener,
+      net: Network,
       launcher: OpencodeLauncher = OpencodeLauncher.default
   )(using Ox): OpencodeBackend =
     new OpencodeBackend(
-      OpencodeServer(cli, workDir, events, launcher),
+      OpencodeServer(
+        cli,
+        workDir,
+        events,
+        launcher,
+        (url, password) => NetworkOpencodeHttp.start(net, url, password)
+      ),
       workDir
     )
 
@@ -79,7 +84,7 @@ private[orca] object OpencodeBackend:
   */
 private[orca] class OpencodeBackend(
     server: OpencodeServerHandle,
-    override val workDir: os.Path = os.pwd
+    override val workDir: os.Path
 ) extends AgentBackend[BackendTag.Opencode.type]:
 
   /** Probe `http` for the given session id via `GET /session/<id>` → status
@@ -137,9 +142,10 @@ private[orca] class OpencodeBackend(
   ): String =
     dispatch match
       case Dispatch.Resume(serverId, _) => WireSessionId.value(serverId)
-      case Dispatch.Fresh(_) =>
-        val resp = http.postJson("/session", writeToString(SessionCreateBody()))
-        readFromString[SessionCreated](resp).id
+      case Dispatch.Fresh(_)            =>
+        val resp =
+          http.postJson("/session", JsonCodec.writeString(SessionCreateBody()))
+        JsonCodec.readString[SessionCreated](resp).id
 
   /** Resolve the server session, THEN open the SSE stream: [[serverSessionFor]]
     * can throw (fresh `POST /session`, or a bad resume id), and opening the
@@ -198,7 +204,7 @@ private[orca] class OpencodeBackend(
     try
       val _ = http.postJson(
         s"/session/$serverSession/prompt_async",
-        writeToString(body)
+        JsonCodec.writeString(body)
       )
     catch
       // The reader is already live on the SSE stream; cancel it so it doesn't

@@ -18,6 +18,16 @@ scalacOptions ++= Seq(
 
 javacOptions ++= Seq("--release", "21")
 
+// Scala 3.10.0's safe-mode checker (`SafeRefs.checker`) shares a mutable flag
+// across compiler instances in one JVM, so concurrent safe-mode compiles report
+// false "Cannot refer to ..." errors. Remove once fixed upstream.
+Global / concurrentRestrictions += Tags.limit(Tags.Compile, 1)
+
+// tapir's Magnolia `Schema.derived`, which the schema-parity tests compare
+// against, inlines `Predef.ArrowAssoc`, deprecated since Scala 3.10; `@nowarn`
+// can't reach a warning positioned in inlined code.
+Test / scalacOptions += "-Wconf:cat=deprecation&msg=ArrowAssoc:s"
+
 // Makes sbt-git answer its read-only queries with the `git` CLI instead of the
 // bundled JGit, which reads a linked worktree's `.git` *file* as a bare repo and
 // aborts project load with NoWorkTreeException — without this, sbt does not
@@ -86,9 +96,39 @@ developers := List(
   )
 )
 
+// Main sources only: tests mint capabilities and use os-lib directly.
+lazy val safeMode = Seq(
+  Compile / scalacOptions += "-language:experimental.safe",
+  Test / scalacOptions -= "-language:experimental.safe"
+)
+
+// The trusted base: effect capabilities, their implementations and facades
+// over libraries safe code cannot reference. The only module where
+// `@assumeSafe` may appear (`AssumeSafeScopeTest`).
+lazy val core = (project in file("core"))
+  .settings(
+    name := "orca-core",
+    libraryDependencies ++= Seq(
+      osLib,
+      jsoniter,
+      jsoniterMacros,
+      ox,
+      tapirNettySync,
+      // `JsonSchemas` renders tapir schemas as JSON Schema.
+      tapirApispec,
+      sttpApispecCirce,
+      // The `mcp` facade.
+      chimp,
+      slf4j
+    )
+  )
+
 lazy val tools = (project in file("tools"))
+  .dependsOn(core, core % "test->test")
+  .settings(safeMode*)
   .settings(
     name := "orca-tools",
+    Test / javaOptions += testClasspathProperty.value,
     libraryDependencies ++= Seq(
       osLib,
       jsoniter,
@@ -98,28 +138,31 @@ lazy val tools = (project in file("tools"))
       ox,
       jsonSchemaValidator,
       // The shared MCP server (orca.backend.mcp.AskUserMcpServer) is consumed
-      // by the claude, codex and gemini backends, so chimp-server + the netty
-      // backend live here — tools already hosts the cross-backend
-      // orca.backend package — rather than in any single backend module.
+      // by the claude, codex and gemini backends, so chimp-server lives here —
+      // tools already hosts the cross-backend orca.backend package — rather
+      // than in any single backend module.
       chimp,
-      tapirNettySync
+      scala3Compiler
     )
   )
 
 lazy val claude = (project in file("claude"))
   .dependsOn(tools, tools % "test->test")
+  .settings(safeMode*)
   .settings(
     name := "orca-claude",
     libraryDependencies ++= Seq(
       osLib,
       jsoniter,
       jsoniterMacros,
-      logback
+      // Binds chimp/tapir/netty's SLF4J calls in the MCP-server tests.
+      logback % Test
     )
   )
 
 lazy val codex = (project in file("codex"))
   .dependsOn(tools, tools % "test->test")
+  .settings(safeMode*)
   .settings(
     name := "orca-codex",
     libraryDependencies ++= Seq(osLib, jsoniter, jsoniterMacros)
@@ -127,16 +170,17 @@ lazy val codex = (project in file("codex"))
 
 lazy val pi = (project in file("pi"))
   .dependsOn(tools, tools % "test->test")
+  .settings(safeMode*)
   .settings(
     name := "orca-pi",
     libraryDependencies ++= Seq(osLib, jsoniter, jsoniterMacros)
   )
 
 // The OpenCode backend talks HTTP+SSE to a headless `opencode serve` (ADR
-// 0014); it uses the JDK's java.net.http client (no extra dependency) behind a
-// small testable trait, plus jsoniter for the wire DTOs.
+// 0014), through `Network.httpClient`.
 lazy val opencode = (project in file("opencode"))
   .dependsOn(tools, tools % "test->test")
+  .settings(safeMode*)
   .settings(
     name := "orca-opencode",
     libraryDependencies ++= Seq(osLib, jsoniter, jsoniterMacros)
@@ -144,6 +188,7 @@ lazy val opencode = (project in file("opencode"))
 
 lazy val gemini = (project in file("gemini"))
   .dependsOn(tools, tools % "test->test")
+  .settings(safeMode*)
   .settings(
     name := "orca-gemini",
     libraryDependencies ++= Seq(osLib, jsoniter, jsoniterMacros)
@@ -151,6 +196,7 @@ lazy val gemini = (project in file("gemini"))
 
 lazy val flow = (project in file("flow"))
   .dependsOn(tools, tools % "test->test")
+  .settings(safeMode*)
   .settings(
     name := "orca-flow",
     Test / javaOptions += testClasspathProperty.value,
@@ -163,8 +209,18 @@ lazy val flow = (project in file("flow"))
     )
   )
 
+// A run's setup, recovery and teardown; `runner` wires it.
+lazy val lifecycle = (project in file("lifecycle"))
+  .dependsOn(tools, tools % "test->test", flow)
+  .settings(safeMode*)
+  .settings(
+    name := "orca-lifecycle",
+    libraryDependencies ++= Seq(osLib, jsoniter, jsoniterMacros, ox)
+  )
+
 lazy val runner = (project in file("runner"))
   .dependsOn(
+    lifecycle,
     tools,
     tools % "test->test",
     flow,
@@ -211,6 +267,7 @@ lazy val runner = (project in file("runner"))
       ox,
       mainargs,
       jline,
+      logback,
       fansi,
       jsoniterMacros,
       munitScalacheck
@@ -218,11 +275,12 @@ lazy val runner = (project in file("runner"))
   )
 
 lazy val shell = (project in file("shell"))
-  // `pi` and `gemini` are already on the classpath transitively via `runner`,
-  // but declared explicitly since shell reads pi's session store
+  // `lifecycle`, `pi` and `gemini` are already on the classpath transitively
+  // via `runner`, but declared explicitly since shell uses them directly:
+  // lifecycle's `RoleAgents` and `RunTarget`, and pi's session store
   // (`PiSessionStore`) and gemini's session listing (`GeminiSessionList`) to
   // build the resume argv for a recorded chat (ADR 0021 §8).
-  .dependsOn(runner, pi, gemini, tools % "test->test")
+  .dependsOn(runner, lifecycle, pi, gemini, tools % "test->test")
   .settings(
     name := "orca-shell",
     Compile / mainClass := Some("orca.shell.Main"),
@@ -357,4 +415,4 @@ lazy val orcaRoot = rootProject
         )
     }
   )
-  .aggregate(tools, flow, claude, codex, opencode, pi, gemini, runner, shell)
+  .aggregate(core, tools, flow, lifecycle, claude, codex, opencode, pi, gemini, runner, shell)

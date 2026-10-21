@@ -2,8 +2,10 @@ package orca.runner
 
 import orca.agents.{AutoApprove, BackendTag, Enforcement, ToolSet, TurnDispatch}
 import orca.backend.AgentBackend
+import orca.effect.{FileSystem, Network, Processes}
 import orca.events.OrcaListener
 import orca.subprocess.StubCliRunner
+import orca.tools.OsGitTool
 import orca.backend.claude.ClaudeBackend
 import orca.backend.codex.CodexBackend
 import orca.backend.gemini.GeminiBackend
@@ -182,11 +184,29 @@ class EnforcementTableTest extends munit.FunSuite:
     supervised:
       val cli = new StubCliRunner()
       val backends = List[AgentBackend[?]](
-        new ClaudeBackend(cli),
-        new CodexBackend(cli),
-        new GeminiBackend(cli),
-        OpencodeBackend(cli, TempDirs.dir(), OrcaListener.noop),
-        PiBackend.forInspection(cli)
+        new ClaudeBackend(
+          Network.ambient,
+          FileSystem.ambient,
+          cli,
+          new OsGitTool(_, Processes.ambient, FileSystem.ambient),
+          (_, _) => false,
+          os.pwd
+        ),
+        new CodexBackend(
+          Network.ambient,
+          FileSystem.ambient,
+          cli,
+          _ => false,
+          os.pwd
+        ),
+        new GeminiBackend(Network.ambient, FileSystem.ambient, cli, os.pwd),
+        OpencodeBackend(
+          cli,
+          TempDirs.dir(),
+          OrcaListener.noop,
+          Network.ambient
+        ),
+        PiBackend.forInspection(FileSystem.ambient, cli, os.pwd)
       )
       use(
         (for

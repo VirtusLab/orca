@@ -46,3 +46,10 @@ trait AgentSet:
   ): Agent[?] =
     val agent = agentFor(tag)
     modelPin.fold(agent)(m => agent.withModel(Model(m)))
+
+  /** True when `a` runs on one of the five backends — one of this set's agents
+    * itself or a builder-derived sibling (`_.claude.opus`, `.withReadOnly`, …).
+    * Used only for the foreign-lead warning.
+    */
+  private[orca] def isWiredBackend(a: Agent[?]): Boolean =
+    BackendTag.values.exists(t => agentFor(t).sharesBackendWith(a))

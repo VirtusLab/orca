@@ -2,14 +2,9 @@ package orca.runlog
 
 import com.github.plokhotnyuk.jsoniter_scala.core.{
   JsonReaderException,
-  JsonValueCodec,
-  readFromString,
-  writeToString
+  JsonValueCodec
 }
-import com.github.plokhotnyuk.jsoniter_scala.macros.{
-  CodecMakerConfig,
-  ConfiguredJsonValueCodec
-}
+import orca.json.JsonCodec
 import orca.{AttemptId, StagePath}
 import orca.agents.{BackendTag, SessionKey}
 import orca.events.{Cost, StageOutcome}
@@ -134,19 +129,19 @@ private[orca] object RunEvent:
     summon[JsonData[BranchName]].codec
 
   private given JsonValueCodec[StageOutcome] =
-    ConfiguredJsonValueCodec.derived[StageOutcome](using
-      CodecMakerConfig.withDiscriminatorFieldName(None)
+    JsonCodec.derived[StageOutcome](using
+      JsonCodec.config.withDiscriminatorFieldName(None)
     )
 
   given codec: JsonValueCodec[RunEvent] =
-    ConfiguredJsonValueCodec.derived[RunEvent](using
-      CodecMakerConfig.withDiscriminatorFieldName(Some("type"))
+    JsonCodec.derived[RunEvent](using
+      JsonCodec.config.withDiscriminatorFieldName(Some("type"))
     )
 
   /** The event as one JSON line, without the newline. */
-  def encodeLine(event: RunEvent): String = writeToString(event)
+  def encodeLine(event: RunEvent): String = JsonCodec.writeString(event)
 
   /** The event on `line`; `None` when it does not decode. */
   def decodeLine(line: String): Option[RunEvent] =
-    try Some(readFromString[RunEvent](line))
+    try Some(JsonCodec.readString[RunEvent](line))
     catch case _: JsonReaderException => None

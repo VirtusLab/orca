@@ -1,6 +1,7 @@
 package orca.shell.menu
 
 import orca.gitref.BranchName
+import orca.effect.FileSystem
 import orca.json.JsonFile
 import orca.progress.{FlowSource, ProgressHeader, ProgressLog, ProgressScan}
 import orca.shell.actions.FlowResolution
@@ -52,7 +53,7 @@ private[menu] object ResumeDetector:
   def detect(dirs: List[os.Path]): Option[InterruptedRun] =
     try
       newestProgressLog(dirs).flatMap: found =>
-        JsonFile.read[ProgressLog](found.path) match
+        JsonFile(FileSystem.ambient).read[ProgressLog](found.path) match
           case JsonFile.Read.Loaded(log) => fromHeader(log.header, found)
           case _                         => None
     catch case scala.util.control.NonFatal(_) => None
@@ -98,7 +99,7 @@ private[menu] object ResumeDetector:
     */
   private def logsIn(dir: os.Path): List[FoundLog] =
     try
-      ProgressScan
+      ProgressScan(orca.effect.FileSystem.ambient)
         .progressLogPaths(dir)
         .flatMap: path =>
           scala.util

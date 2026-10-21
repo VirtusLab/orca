@@ -1,5 +1,6 @@
 package orca.backend.mcp
 
+import orca.effect.Network
 import ox.{forkDiscard, supervised}
 import ox.channels.BufferCapacity
 
@@ -17,7 +18,7 @@ class AskUserMcpServerTest extends munit.FunSuite:
     supervised:
       given BufferCapacity = BufferCapacity(8)
       val bridge = new AskUserBridge
-      val server = AskUserMcpServer.start(bridge)
+      val server = AskUserMcpServer.start(Network.ambient, bridge)
 
       val resp = post(
         server.url,
@@ -38,7 +39,7 @@ class AskUserMcpServerTest extends munit.FunSuite:
       .start: () =>
         supervised:
           given BufferCapacity = BufferCapacity(8)
-          val session = AskUserSession.allocate()
+          val session = AskUserSession.allocate(Network.ambient)
           forkDiscard:
             post(
               session.server.url,

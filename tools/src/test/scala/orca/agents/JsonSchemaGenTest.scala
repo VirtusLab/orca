@@ -2,11 +2,15 @@ package orca.agents
 
 import io.circe.parser.parse
 import io.circe.{Json, JsonObject}
+import orca.json.{JsonSchemas, SchemaDerivation}
+import sttp.tapir.Schema
 
 class JsonSchemaGenTest extends munit.FunSuite:
 
-  private def strict(input: String): Json =
-    JsonSchemaGen.toOpenAiStrict(parse(input).toOption.get)
+  private def strictOrRefusal(input: String): Either[String, Json] =
+    JsonSchemas.toOpenAiStrict(parse(input).toOption.get)
+
+  private def strict(input: String): Json = strictOrRefusal(input).toOption.get
 
   test("object node gains additionalProperties:false and full required list"):
     // OpenAI strict mode demands every object declare additionalProperties
@@ -58,17 +62,16 @@ class JsonSchemaGenTest extends munit.FunSuite:
   ):
     // The realistic shape Tapir emits for a Map[String,T] field: an object
     // node with additionalProperties but no `properties` key at all.
-    // `rejectMapShapedAdditionalProperties` runs before the `properties`
+    // The Map-shape check runs before the `properties`
     // check, so this fails fast here rather than letting the non-strict
     // schema reach codex/claude and bounce back as an opaque
     // `invalid_json_schema`.
-    val ex = intercept[orca.OrcaFlowException]:
-      strict(
-        """{"type":"object","additionalProperties":{"type":"integer"}}"""
-      )
+    val refusal = strictOrRefusal(
+      """{"type":"object","additionalProperties":{"type":"integer"}}"""
+    )
     assert(
-      ex.getMessage.contains("List of key/value case classes"),
-      s"expected actionable Map-field message, got: ${ex.getMessage}"
+      refusal.left.exists(_.contains("List of key/value case classes")),
+      s"expected actionable Map-field message, got: $refusal"
     )
 
   test("apply emits no $schema dialect declaration"):
@@ -76,9 +79,8 @@ class JsonSchemaGenTest extends munit.FunSuite:
     // output, but the claude CLI's `--json-schema` validator has no 2020-12
     // meta-schema registered and rejects any schema declaring that dialect. No
     // consumer needs the declaration, so `apply` strips it.
-    import sttp.tapir.Schema
-    import sttp.tapir.generic.auto.given
     case class Sample(name: String)
+    given Schema[Sample] = SchemaDerivation.derived
     val parsed = parse(JsonSchemaGen[Sample]).toOption.get
     assertEquals(parsed.asObject.get("$schema"), None)
 
@@ -86,9 +88,8 @@ class JsonSchemaGenTest extends munit.FunSuite:
     // End-to-end check that the strict transform doesn't collapse Tapir's
     // nullable encoding — the agent must be able to emit `null` for an
     // Option-typed field that's now `required`.
-    import sttp.tapir.Schema
-    import sttp.tapir.generic.auto.given
     case class Sample(name: String, note: Option[String])
+    given Schema[Sample] = SchemaDerivation.derived
     val parsed = parse(JsonSchemaGen[Sample]).toOption.get
     val noteType = parsed.hcursor
       .downField("properties")

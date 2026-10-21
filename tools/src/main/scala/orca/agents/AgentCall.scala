@@ -4,7 +4,8 @@ import orca.AgentTurnFailed
 import orca.backend.{Interaction, AgentBackend}
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.json.JsonData
-import ox.resilience.{ResultPolicy, RetryConfig, retry}
+import orca.safe.concurrency
+import orca.safe.concurrency.retry
 
 /** Structured-output gateway — obtained via `agent.resultAs[O]`. Splits the
   * autonomous-vs-interactive choice into two sibling objects so the call site
@@ -180,11 +181,9 @@ final class AgentCall[B <: BackendTag, O] private[orca] (
           )
           throw e
 
-    val retryConfig = RetryConfig(
+    val retryConfig = concurrency.retryConfig(
       config.retrySchedule,
-      ResultPolicy.retryWhen[Throwable, O](e =>
-        !e.isInstanceOf[AgentTurnFailed]
-      )
+      concurrency.retryWhen[Throwable, O](e => !e.isInstanceOf[AgentTurnFailed])
     )
 
     try retry(retryConfig)(tryOnce())

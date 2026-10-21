@@ -214,7 +214,7 @@ object ReviewerSelector:
         history =>
           val active = basePick(history)
           history.headOption match
-            case None => active
+            case None           => active
             case Some(previous) =>
               val reported = previous.reviewersWithFindings
               val narrowed = active.filter(e => reported.exists(_.id == e.id))

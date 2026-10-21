@@ -246,7 +246,7 @@ private def rehydrate[B <: BackendTag](
 )(using ctx: FlowContext): Unit =
   WireSessionId.parse[B](wire) match
     case Some(wireId) => agent.rehydrateResumeWireId(id, wireId)
-    case None =>
+    case None         =>
       ctx.emit(
         OrcaEvent.Step(
           s"warning: session ${key.describe} has an invalid recorded wire " +

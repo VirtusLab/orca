@@ -115,11 +115,11 @@ private[review] object ParsedPrompt:
       if c == '\\' && i + 1 < s.length then
         val next = s.charAt(i + 1)
         val toAppend = next match
-          case 'n'  => "\n"
-          case 't'  => "\t"
-          case 'r'  => "\r"
-          case '"'  => "\""
-          case '\\' => "\\"
+          case 'n'   => "\n"
+          case 't'   => "\t"
+          case 'r'   => "\r"
+          case '"'   => "\""
+          case '\\'  => "\\"
           case other =>
             "\\" + other // preserve unknown sequences verbatim
         val _ = sb.append(toAppend)

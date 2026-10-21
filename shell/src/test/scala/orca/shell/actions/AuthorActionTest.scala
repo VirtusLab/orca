@@ -177,8 +177,7 @@ class AuthorActionTest extends munit.FunSuite:
         val copied =
           sandbox / ".orca" / "cache" / s"orca-api-${OrcaBuild.current.version}" /
             "fork-source" / "implement.sc"
-        promptSourcePathExisted = os.isFile(copied)
-      )
+        promptSourcePathExisted = os.isFile(copied))
 
       val result = AuthorAction.fork(
         source,

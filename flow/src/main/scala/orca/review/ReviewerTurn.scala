@@ -49,7 +49,7 @@ private[review] object ReviewerTurn:
   )(using InStage): (ReviewResult, SessionEntry) =
     val (chat, delivery) = stored match
       case Some(se) => (se.chat, DiffDelivery.next(se.lastSent, current))
-      case None =>
+      case None     =>
         (
           e.agent.withRole(ReviewerPrompts.Role).chat(),
           DiffDelivery.first(current)

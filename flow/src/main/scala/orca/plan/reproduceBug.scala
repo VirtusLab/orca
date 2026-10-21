@@ -45,7 +45,7 @@ private def checkReproduction(
     agent: Agent[?]
 )(using ctx: FlowContext, ev: InStage): BugReportMatch =
   val testHint = ctx.stackSettings.test match
-    case Nil => ""
+    case Nil      => ""
     case commands =>
       s"\nThe project's test command: ${commands.mkString(" && ")}"
   agent

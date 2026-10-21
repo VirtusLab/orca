@@ -3,7 +3,7 @@ package orca.tools
 import orca.{OrcaFlowException, WorkspaceWrite}
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.gitref.{CommitHash, Head}
-import orca.testkit.{GitRepo, branchName}
+import orca.testkit.{Effects, GitRepo, branchName}
 
 import ox.either.orThrow
 import java.util.concurrent.atomic.AtomicReference
@@ -17,11 +17,11 @@ class OsGitToolTest extends munit.FunSuite:
 
   private def withRepo(body: (OsGitTool, os.Path) => Unit): Unit =
     val dir = GitRepo.empty()
-    body(new OsGitTool(dir), dir)
+    body(Effects.gitTool(dir), dir)
 
   private def withSeededRepo(body: (OsGitTool, os.Path) => Unit): Unit =
     val dir = GitRepo.seeded()
-    body(new OsGitTool(dir), dir)
+    body(Effects.gitTool(dir), dir)
 
   /** True when a read never reached git: the revision failed validation. */
   private def rejected(result: Either[GitReadFailed, String]): Boolean =
@@ -35,7 +35,7 @@ class OsGitToolTest extends munit.FunSuite:
     val seen = new AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = (e: OrcaEvent) =>
       val _ = seen.updateAndGet(e :: _)
-    body(new OsGitTool(dir, listener), dir, seen)
+    body(Effects.gitTool(dir, listener), dir, seen)
 
   test("createBranch switches to the new branch"):
     withSeededRepo: (git, _) =>
@@ -88,7 +88,7 @@ class OsGitToolTest extends munit.FunSuite:
 
   test("isIgnored is false (not a failure) outside a git repository"):
     val dir = TempDirs.dir()
-    assert(!new OsGitTool(dir).isIgnored(os.sub / "whatever.txt"))
+    assert(!Effects.gitTool(dir).isIgnored(os.sub / "whatever.txt"))
 
   test("commitOnly commits exactly the given path, leaving other files out"):
     withSeededRepo: (git, dir) =>
@@ -193,7 +193,7 @@ class OsGitToolTest extends munit.FunSuite:
 
   test("defaultBranch throws when git cannot answer"):
     val error = intercept[OrcaFlowException]:
-      new OsGitTool(TempDirs.dir()).defaultBranch()
+      Effects.gitTool(TempDirs.dir()).defaultBranch()
     assert(error.getMessage.contains("git remote set-head"), error.getMessage)
 
   test("diffVsBase returns the cumulative branch diff vs base"):
@@ -386,7 +386,7 @@ class OsGitToolTest extends munit.FunSuite:
       val _ = pushToLocalRemote(git, dir)
       // Paths are cwd-relative, so a tool rooted at `nested` must see its own
       // `f.txt` — not miss it by looking for `f.txt` at the repo root.
-      val nestedGit = new OsGitTool(dir / "nested")
+      val nestedGit = Effects.gitTool(dir / "nested")
       assert(nestedGit.upstreamHas(dir / "nested" / "f.txt"))
 
   test("nonInteractiveEnv disables git and ssh interactive prompts"):
@@ -635,10 +635,10 @@ class OsGitToolTest extends munit.FunSuite:
       os.makeDir.all(dir / "sub")
       os.write(dir / "top.txt", "one\n")
       os.write(dir / "sub" / "inner.txt", "one\n")
-      val root = new OsGitTool(dir)
+      val root = Effects.gitTool(dir)
       root.commit("seed").orThrow
       os.write.over(dir / "top.txt", "two\n")
-      val inSub = new OsGitTool(dir / "sub")
+      val inSub = Effects.gitTool(dir / "sub")
       assert(
         inSub.uncommittedDiff().contains("top.txt"),
         inSub.uncommittedDiff()
@@ -652,10 +652,10 @@ class OsGitToolTest extends munit.FunSuite:
     withRepo: (_, dir) =>
       os.makeDir.all(dir / "sub")
       os.write(dir / "sub" / "seed.txt", "seed")
-      val root = new OsGitTool(dir)
+      val root = Effects.gitTool(dir)
       root.commit("seed").orThrow
       os.write(dir / "sub" / "new.txt", "hello")
-      val inSub = new OsGitTool(dir / "sub")
+      val inSub = Effects.gitTool(dir / "sub")
       assertEquals(inSub.pendingChanges().newFiles, List("new.txt"))
       val diff = inSub.reviewChanges().diff
       assert(diff.contains("+hello"), diff)
@@ -846,7 +846,7 @@ class OsGitToolTest extends munit.FunSuite:
       git.commit("seed").orThrow
       os.write.over(dir / "sub" / "inner.txt", "two\n")
       val section =
-        new OsGitTool(dir / "sub").reviewChanges().sections.get("inner.txt")
+        Effects.gitTool(dir / "sub").reviewChanges().sections.get("inner.txt")
       assert(section.exists(_.contains("+two")), section)
 
   test("reviewChanges gives a file replaced by a symlink one section"):
@@ -906,11 +906,11 @@ class OsGitToolTest extends munit.FunSuite:
       os.makeDir.all(dir / "sub")
       os.write(dir / "top.txt", "one")
       os.write(dir / "sub" / "inner.txt", "one")
-      new OsGitTool(dir).commit("seed").orThrow
+      Effects.gitTool(dir).commit("seed").orThrow
       os.write.over(dir / "top.txt", "two")
       val _ = os.proc("git", "config", "diff.relative", "true").call(cwd = dir)
       assertEquals(
-        new OsGitTool(dir / "sub").changedFiles(),
+        Effects.gitTool(dir / "sub").changedFiles(),
         List("../top.txt")
       )
 

@@ -1,5 +1,6 @@
 package orca
 
+import orca.effect.FileSystem
 import orca.testkit.TextReplyingAgent
 import orca.json.RawJson
 
@@ -472,8 +473,12 @@ class StageRuntimeTest extends munit.FunSuite:
       dir: os.Path,
       listener: OrcaListener
   ): TestRun =
-    val git = new orca.tools.OsGitTool(dir)
-    val store = orca.progress.ProgressStore.default(dir, RunKey.of("p"))
+    val git = orca.testkit.Effects.gitTool(dir)
+    val store = orca.progress.ProgressStore.default(
+      FileSystem.ambient,
+      dir,
+      RunKey.of("p")
+    )
     TestRun(
       new TestFlowControl(store, new orca.sessions.TestSessionStore),
       new TestFlowContext(
