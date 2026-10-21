@@ -13,12 +13,7 @@ class RunGitHubToolTest extends munit.FunSuite:
   private val pr =
     PrHandle.fromUrl("https://github.com/acme/widgets/pull/42").get
 
-  /** The readiness the wrapped tool got for one `createPr(readiness)` through a
-    * run whose `--draft` is `Draft`.
-    */
-  private def passedOn(
-      readiness: Option[PrReadiness]
-  ): List[Option[PrReadiness]] =
+  test("createPr with a readiness keeps it over the run's"):
     val seen = new ConcurrentLinkedQueue[Option[PrReadiness]]()
     val underlying = new StubGitHubTool:
       override def createPr(
@@ -29,14 +24,13 @@ class RunGitHubToolTest extends munit.FunSuite:
         seen.add(readiness): Unit
         Right(pr)
     val _ = RunGitHubTool(underlying, PrReadiness.Draft)
-      .createPr("t", "b", readiness)
-    seen.asScala.toList
+      .createPr("t", "b", Some(PrReadiness.Ready))
+    assertEquals(seen.asScala.toList, List(Some(PrReadiness.Ready)))
 
-  test("createPr without a readiness gets the run's"):
-    assertEquals(passedOn(None), List(Some(PrReadiness.Draft)))
-
-  test("createPr with a readiness keeps it"):
+  test("prHandle is the wrapped tool's"):
+    val underlying = new StubGitHubTool:
+      override def prHandle(ref: String): Either[String, PrHandle] = Right(pr)
     assertEquals(
-      passedOn(Some(PrReadiness.Ready)),
-      List(Some(PrReadiness.Ready))
+      RunGitHubTool(underlying, PrReadiness.Draft).prHandle("x"),
+      Right(pr)
     )

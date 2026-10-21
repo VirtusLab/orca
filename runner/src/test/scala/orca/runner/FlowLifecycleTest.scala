@@ -1149,10 +1149,10 @@ class FlowLifecycleTest extends munit.FunSuite:
 
   test("setup: a resume keeps the first attempt's readiness over its own"):
     val workDir = GitRepo.seeded()
-    val _ = setupWithReadiness(workDir, PrReadiness.Draft)
+    val _ = setupWithReadiness(workDir, PrReadiness.Ready)
     assertEquals(
-      setupWithReadiness(workDir, PrReadiness.Ready).prReadiness,
-      PrReadiness.Draft
+      setupWithReadiness(workDir, PrReadiness.Draft).prReadiness,
+      PrReadiness.Ready
     )
 
   test("setup: --branch naming the detected default branch is refused"):
@@ -1841,8 +1841,9 @@ class FlowLifecycleTest extends munit.FunSuite:
         )
       )(body)
 
-  test("a createPr without a readiness opens the run's --draft"):
+  test("a resumed run's createPr without a readiness opens its first --draft"):
     val workDir = GitRepo.seeded()
+    val prompt = "draft-gh"
     val readinesses = new ConcurrentLinkedQueue[Option[PrReadiness]]()
     val gh = new StubGitHubTool:
       override def createPr(
@@ -1852,11 +1853,16 @@ class FlowLifecycleTest extends munit.FunSuite:
       )(using WorkspaceWrite) =
         readinesses.add(readiness): Unit
         Right(handoffPr)
+    val _ = intercept[ReportedFailure]:
+      runFlowForTest(workDir, prompt, prReadiness = PrReadiness.Draft):
+        val _ = stage("stage-one")("one-done")
+        val _ = stage[String]("stage-two"):
+          throw new RuntimeException("boom")
     runFlowForTest(
       workDir,
-      "draft-gh",
+      prompt,
       gh = Some(gh),
-      prReadiness = PrReadiness.Draft
+      prReadiness = PrReadiness.Ready
     ):
       given WorkspaceWrite = WorkspaceWrite.unsafe
       val _ = summon[orca.FlowContext].gh.createPr("t", "b")

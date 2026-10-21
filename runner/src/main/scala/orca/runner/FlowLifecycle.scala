@@ -148,9 +148,9 @@ object FlowLifecycle:
     * [[SetupSession.bindBranch]]'s arms runs (corrupt log, absent log, or
     * resumed) before the stack-settings half is folded in.
     *
-    * `startingCommit` comes from the same arm: a fresh run records the commit
-    * it bound at, a resumed one reads back what its header recorded, so both
-    * name the state the RUN started from rather than this attempt's.
+    * `startingCommit` and `prReadiness` come from the same arm: a fresh run
+    * takes this attempt's, a resumed one reads back what its header recorded,
+    * so both describe the RUN rather than this attempt.
     */
   private[orca] case class BranchBinding(
       featureBranch: FeatureBranch,

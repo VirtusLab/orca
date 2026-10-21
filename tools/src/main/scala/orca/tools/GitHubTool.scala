@@ -3,7 +3,6 @@ package orca.tools
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import orca.{OrcaFlowException, WorkspaceWrite}
 import orca.events.{OrcaEvent, OrcaListener}
-import orca.json.JsonData
 import orca.subprocess.{CliResult, CliRunner}
 import orca.util.TextUtil
 import ox.sleep
@@ -125,12 +124,6 @@ enum CheckState:
   case Failure
   case Unknown(raw: String)
 
-/** Whether [[GitHubTool.createPr]] opens a PR ready for review or as a draft.
-  */
-enum PrReadiness derives JsonData:
-  case Ready
-  case Draft
-
 /** Recoverable [[GitHubTool.createPr]] failure modes. Common when re-running a
   * flow against an already-pushed branch. Other gh failures (auth, network)
   * remain thrown.
@@ -226,9 +219,9 @@ trait GitHubTool:
     * (auth, network).
     *
     * `readiness` applies only to a PR this call opens (`gh pr create --draft`);
-    * when omitted, the run's `--draft` decides. When an open PR already exists
-    * for the branch, it is returned as it is: neither draft nor ready state is
-    * changed.
+    * when omitted, the run's `--draft` decides (applied by the run's `gh`).
+    * When an open PR already exists for the branch, it is returned as it is:
+    * neither draft nor ready state is changed.
     */
   def createPr(
       title: String,
@@ -312,6 +305,8 @@ trait GitHubTool:
   *
   * `events` lets the tool publish a [[OrcaEvent.Step]] when a PR is opened so
   * the URL surfaces in the event log. Defaults to `OrcaListener.noop`.
+  *
+  * A `createPr` without a readiness opens a ready PR.
   */
 private[orca] class OsGitHubTool(
     cli: CliRunner,

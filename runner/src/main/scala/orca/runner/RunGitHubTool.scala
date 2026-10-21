@@ -12,6 +12,10 @@ private[orca] class RunGitHubTool(
 ) extends GitHubTool:
   export underlying.{createPr as _, *}
 
+  // `export` skips members the trait already implements.
+  override def prHandle(ref: String): Either[String, PrHandle] =
+    underlying.prHandle(ref)
+
   def createPr(
       title: String,
       body: String,
