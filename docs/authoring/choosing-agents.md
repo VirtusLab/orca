@@ -118,13 +118,13 @@ in [Talking to agents](talking-to-agents.md).
 levels are `Off`, `Minimal`, `Low`, `Medium`, `High`, `XHigh` and `Max`, and
 each harness accepts some of them:
 
-| Harness  | Levels                    | Sent as                         |
-|----------|---------------------------|---------------------------------|
-| claude   | `Low` to `Max`            | `--effort`                      |
-| codex    | all                       | `-c model_reasoning_effort=...` |
-| pi       | all but `Max`             | `--thinking`                    |
-| opencode | depends on the model      | the message's `variant`         |
-| gemini   | none; does not compile    |                                 |
+| Harness  | Levels                             | Sent as                         |
+|----------|------------------------------------|---------------------------------|
+| claude   | `Low` to `Max`                     | `--effort`                      |
+| codex    | all                                | `-c model_reasoning_effort=...` |
+| pi       | all but `Max`                      | `--thinking`                    |
+| opencode | all; the model decides which apply | the message's `variant`         |
+| gemini   | none; does not compile             |                                 |
 
 A level the harness does not accept throws when the agent is built. It cannot
 be set in `settings.properties`.

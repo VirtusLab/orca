@@ -71,10 +71,10 @@ class OpencodeArgsTest extends munit.FunSuite:
     )
 
   test("message sends the effort as the variant"):
-    val config = AgentConfig(effort = Some(Effort.XHigh))
+    val config = AgentConfig(effort = Some(Effort.Off))
     assertEquals(
       OpencodeArgs.message(config, "hi", None, interactive).variant,
-      Some("xhigh")
+      Some("none")
     )
 
   test("message carries the composed system prompt, config included"):

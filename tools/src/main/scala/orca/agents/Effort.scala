@@ -20,7 +20,7 @@ final class EffortSupport[B <: BackendTag] private (
 ):
   /** `effort`, or `IllegalArgumentException` if the harness does not accept it.
     */
-  def validated(effort: Effort): Effort =
+  private[agents] def validated(effort: Effort): Effort =
     if levels.contains(effort) then effort
     else
       throw IllegalArgumentException(
@@ -28,8 +28,8 @@ final class EffortSupport[B <: BackendTag] private (
           Effort.values.filter(levels.contains).mkString(", ")
       )
 
-  /** The harness's value for `effort`; throws like [[validated]]. */
-  def wire(effort: Effort): String = levels(validated(effort))
+  /** The harness's value for a level [[validated]] accepted. */
+  private[orca] def wire(effort: Effort): String = levels(effort)
 
 object EffortSupport:
   private val upToMax: Map[Effort, String] = Map(

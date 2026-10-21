@@ -207,7 +207,7 @@ families. Plus a public `withModel(providerModel: String)` for any other `provid
 no allowlist, so arbitrary ids pass straight through to the message body.
 
 `AgentConfig.model = None` lets the server use its configured default. `variant`
-(reasoning effort) maps from a future config field; out of scope for v1.
+carries `AgentConfig.effort`; see `EffortSupport.opencode`.
 
 **Model-identifier utilities.** For self-hosted / custom providers, provide a tiny
 constructor so callers don't hand-concatenate strings and `OpencodeArgs` doesn't
