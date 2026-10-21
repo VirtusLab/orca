@@ -498,8 +498,8 @@ private[orca] class OsGitHubTool(
       case PrReadiness.Draft => Seq("--draft")
       case PrReadiness.Ready => Nil
     val result = runGhResult(
-      Seq("pr", "create", "--title", title, "--body", body, "--head", head) ++
-        draftFlag: _*
+      (Seq("pr", "create", "--title", title, "--body", body, "--head", head) ++
+        draftFlag)*
     )
     if result.exitCode == 0 then
       val output = result.stdout.trim

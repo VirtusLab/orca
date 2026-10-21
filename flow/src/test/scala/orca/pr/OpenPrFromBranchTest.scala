@@ -96,6 +96,7 @@ class OpenPrFromBranchTest extends FunSuite:
       store,
       _ => (),
       new ConcurrentLinkedQueue[String](),
+      availability = GitHubAvailability.Available("github.com", "acme", "w"),
       prReadinesses = readinesses
     )
     import run.given
@@ -129,7 +130,7 @@ class OpenPrFromBranchTest extends FunSuite:
       List("Push branch", "Generate PR title and description", "Open PR")
     )
 
-  test("openPrFromBranch opens a ready PR by default and a draft on request"):
+  test("openPr* open a ready PR by default and a draft on request"):
     assertEquals(
       createPrReadinesses(agent =>
         openPrFromBranch(
@@ -142,6 +143,16 @@ class OpenPrFromBranchTest extends FunSuite:
     assertEquals(
       createPrReadinesses(agent =>
         openPrFromBranch(
+          summarisingAgent = agent,
+          openFindings = OpenFindings.empty,
+          readiness = PrReadiness.Draft
+        )
+      ),
+      List(PrReadiness.Draft)
+    )
+    assertEquals(
+      createPrReadinesses(agent =>
+        openPrIfGitHub(
           summarisingAgent = agent,
           openFindings = OpenFindings.empty,
           readiness = PrReadiness.Draft
