@@ -42,15 +42,14 @@ object OsProcCliRunner extends CliRunner:
     // only with `propagateEnv = false`), so this adds one variable and changes
     // nothing else the CLI sees.
     val cookie = EnvCookie.mint()
-    val sub = os
-      .proc(args)
-      .spawn(
-        cwd = cwd,
-        env = env + (EnvCookie.VarName -> cookie.value),
-        stdin = os.Pipe,
-        stdout = os.Pipe,
-        stderr = os.Pipe
-      )
+    val sub = Spawn(
+      args,
+      cwd = cwd,
+      env = env + (EnvCookie.VarName -> cookie.value),
+      stdin = os.Pipe,
+      stdout = os.Pipe,
+      stderr = os.Pipe
+    )
     new OsPipedSubProcess(sub, cookie)
 
 /** Takes the cookie unwrapped: a process orca actually spawned always carries

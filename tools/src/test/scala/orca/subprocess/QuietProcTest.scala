@@ -1,5 +1,7 @@
 package orca.subprocess
 
+import ox.discard
+
 class QuietProcTest extends munit.FunSuite:
 
   /** A subprocess writing to stderr must have its output captured into
@@ -23,6 +25,13 @@ class QuietProcTest extends munit.FunSuite:
   test("call doesn't throw on non-zero exit"):
     val result = QuietProc.call(Seq("bash", "-c", "exit 7"), cwd = os.pwd)
     assertEquals(result.exitCode, 7)
+
+  test("call of a missing program fails only in the caller"):
+    val failedThreads = OsLibThreadFailures.during:
+      intercept[java.io.IOException]:
+        QuietProc.call(Seq("orca-test-no-such-program"), cwd = os.pwd)
+      .discard
+    assertEquals(failedThreads, Nil)
 
   /** The heap bound itself, which no result can show: every field of
     * `CappedResult` reads the same whether the sink stopped at the cap or
