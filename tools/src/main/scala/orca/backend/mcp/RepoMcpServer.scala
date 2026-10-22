@@ -1,6 +1,5 @@
 package orca.backend.mcp
 
-import chimp.server.{NoStructuredOutput, ToolResult}
 import orca.effect.Network
 import orca.json.JsonData
 import orca.mcp
@@ -75,7 +74,7 @@ private[backend] object RepoMcpServer:
   /** Map a read outcome onto MCP's success/error channels. */
   private def render(
       result: Either[GitReadFailed, String]
-  ): ToolResult[NoStructuredOutput] =
+  ): mcp.Result =
     mcp.fromEither(result.left.map(_.getMessage))
 
   /** System-prompt hint naming the tools. Read-only turns have no shell, so

@@ -143,9 +143,8 @@ lazy val tools = (project in file("tools"))
       jsoniterMacros,
       ox,
       jsonSchemaValidator,
-      // The MCP servers (`orca.backend.mcp`) use chimp's result types beside
-      // core's `orca.mcp` facade.
-      chimp
+      // `McpHostTest` calls a chimp tool's logic directly.
+      chimp % Test
     )
   )
 

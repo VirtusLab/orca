@@ -27,10 +27,14 @@ import sttp.tapir.server.ServerEndpoint
 type Tool[I] =
   ServerTool[I, NoStructuredOutput, Identity, ServerContext[Identity]]
 
+/** What a [[Tool]] call returns: text contents, flagged as an error or not. */
+@assumeSafe
+type Result = ToolResult[NoStructuredOutput]
+
 /** A tool whose input is decoded through its [[JsonData]] codec. */
 @assumeSafe
 def tool[I](name: String, description: String)(
-    handle: I => ToolResult[NoStructuredOutput]
+    handle: I => Result
 )(using jd: JsonData[I]): Tool[I] =
   chimp.server
     .tool(name)
@@ -39,21 +43,18 @@ def tool[I](name: String, description: String)(
     .handle(handle)
 
 @assumeSafe
-def text(text: String): ToolResult[NoStructuredOutput] =
+def text(text: String): Result =
   ToolResult.text(text)
 @assumeSafe
-def error(message: String): ToolResult[NoStructuredOutput] =
+def error(message: String): Result =
   ToolResult.error(message)
 @assumeSafe
-def fromEither(
-    result: Either[String, String]
-): ToolResult[NoStructuredOutput] = ToolResult.fromEither(result)
+def fromEither(result: Either[String, String]): Result =
+  ToolResult.fromEither(result)
 
 /** `result` with `f` applied to each of its text contents. */
 @assumeSafe
-def mapText(result: ToolResult[NoStructuredOutput])(
-    f: String => String
-): ToolResult[NoStructuredOutput] =
+def mapText(result: Result)(f: String => String): Result =
   result.copy(content = result.content.map:
     case t: ToolContent.Text => t.copy(text = f(t.text))
     case other               => other)

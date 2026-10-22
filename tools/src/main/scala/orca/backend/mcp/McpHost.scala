@@ -1,6 +1,5 @@
 package orca.backend.mcp
 
-import chimp.server.{NoStructuredOutput, ToolResult}
 import orca.effect.Network
 import orca.mcp
 import ox.Ox
@@ -46,8 +45,8 @@ private[backend] object McpHost:
     else text.take(MaxOutputChars) + CutMarker
 
   private def bounded(
-      result: ToolResult[NoStructuredOutput]
-  ): ToolResult[NoStructuredOutput] =
+      result: mcp.Result
+  ): mcp.Result =
     mcp.mapText(result)(bounded)
 
   /** The two guarantees every result served here carries: its text stays within
@@ -56,8 +55,8 @@ private[backend] object McpHost:
     * cannot read.
     */
   private def guardedResult(
-      result: => ToolResult[NoStructuredOutput]
-  ): ToolResult[NoStructuredOutput] =
+      result: => mcp.Result
+  ): mcp.Result =
     try bounded(result)
     catch
       case NonFatal(e) =>
@@ -66,9 +65,10 @@ private[backend] object McpHost:
   /** Put a tool's logic behind [[guardedResult]]. [[start]] applies this to
     * every tool it binds, so the guard is not something a tool opts into.
     *
-    * The [[NoStructuredOutput]] bound keeps a second, unbounded channel out of
-    * reach: `withStructured` moves the type parameter, and `ServerTool` is
-    * invariant in it, so a tool built that way no longer fits [[start]]'s list.
+    * The `NoStructuredOutput` bound in [[mcp.Tool]] keeps a second, unbounded
+    * channel out of reach: `withStructured` moves the type parameter, and
+    * `ServerTool` is invariant in it, so a tool built that way no longer fits
+    * [[start]]'s list.
     */
   private[mcp] def guarded[I](t: mcp.Tool[I]): mcp.Tool[I] =
     t.copy(logic =

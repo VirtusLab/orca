@@ -1,7 +1,8 @@
 package orca.backend.pi
 
 import orca.effect.FileSystem
-import orca.safe.prelude.{resourceText, given}
+import orca.safe.prelude.given
+import orca.util.PromptResource
 import ox.ResourceScope
 
 /** Temporary Pi extension exposing Orca's `ask_user` turn event through Pi's
@@ -26,8 +27,4 @@ private[pi] object PiAskUserExtension:
     file
 
   private def source: String =
-    resourceText("/orca/backend/pi/ask-user.ts").getOrElse(
-      throw IllegalStateException(
-        "ask-user.ts resource missing from the pi module jar"
-      )
-    )
+    PromptResource.load("/orca/backend/pi/ask-user.ts")

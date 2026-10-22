@@ -22,17 +22,18 @@ The repository is organised into these modules:
 ```
 orca/
 ├── core/       # effect capabilities and their implementations, facades for safe-mode code, JsonData
-├── tools/      # tool traits + os-lib-backed impls (git/gh/fs), LLM SPI, session durability, events
+├── tools/      # tool traits + os-lib-backed impls (git/gh/fs), LLM SPI, session durability, InStage, events, subprocess runner
 ├── flow/       # stage/display/fail, FlowContext/FlowControl; orca.{plan,review,pr,progress}
 ├── claude/ codex/ gemini/ opencode/ pi/   # one module per coding-agent backend
 ├── lifecycle/  # a run's setup, recovery and teardown; --worktree resolution
-├── runner/     # flow() entry, default wiring, terminal UI
-├── shell/      # orca-shell: the `orca` CLI
+├── runner/     # flow() entry, DefaultFlowContext/DefaultFlowControl, wiring, terminal UI
+├── shell/      # the `orca` CLI's interactive front-end (ADR 0021)
 ├── flows/      # the built-in flow scripts, bundled into the shell
 └── docs/       # this site
 ```
 
-The modules depend on each other as follows:
+The modules depend on each other as follows. Each is published as
+`orca-<module>`, except `runner`, published as `orca`.
 
 ```
 core    (standalone)
@@ -41,8 +42,8 @@ tools                               → core
   │     └── lifecycle               → tools + flow
   ├── claude / codex / gemini /
   │     opencode / pi               → tools
-  ├── runner                        → tools + flow + lifecycle + all five backends   (published as `orca`)
-  └── shell                         → runner + lifecycle                             (published as `orca-shell`)
+  ├── runner                        → tools + flow + lifecycle + all five backends
+  └── shell                         → runner + lifecycle
 ```
 
 The user-facing surface is `package orca`: `flow`, the tool and role-agent

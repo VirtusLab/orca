@@ -1,23 +1,17 @@
 package orca.concurrency
 
-import ox.{fork, supervised}
-
 class RefTest extends munit.FunSuite:
 
-  private val Forks = 64
-
-  private def concurrently[R](body: => R): List[R] =
-    supervised:
-      (1 to Forks).map(_ => fork(body)).toList.map(_.join())
-
-  test("modify hands its result to exactly one of racing callers"):
-    val ref = Ref("")
-    val claimed = concurrently(
-      ref.modify(s => (s + "k", !s.contains("k")))
-    )
-    assertEquals(claimed.count(identity), 1)
-
-  test("update applies every racing update"):
+  test("modify reruns f on the value another writer set meanwhile"):
     val ref = Ref(0)
-    concurrently(ref.update(_ + 1)): Unit
-    assertEquals(ref.get, Forks)
+    var calls = 0
+    val result = ref.modify: s =>
+      calls += 1
+      if calls == 1 then ref.set(10)
+      (s + 1, s)
+    assertEquals((result, ref.get, calls), (10, 11, 2))
+
+  test("update replaces the value with f of it"):
+    val ref = Ref(1)
+    ref.update(_ + 1)
+    assertEquals(ref.get, 2)

@@ -11,69 +11,104 @@ import orca.testkit.Dotc
 class SafeModeExposureTest extends munit.FunSuite:
 
   private def safeFixture(body: String): String =
-    s"""package orca.fixture
+    fixtureIn("orca.fixture", body)
+
+  private def fixtureIn(pkg: String, body: String): String =
+    s"""package $pkg
        |import language.experimental.safe
        |$body
        |""".stripMargin
 
-  /** What each fixture reaches, the symbol its error must name, and the code.
+  /** What each fixture reaches, the symbol its error must name, the package it
+    * sits in, and the code. A `private[effect]` symbol is reached from
+    * `orca.effect`, so it too fails for being unsafe.
     */
-  private val unreachable: List[(String, String, String)] = List(
+  private val unreachable: List[(String, String, String, String)] = List(
     (
       "an effect implementation",
       "QuietProc",
+      "orca.fixture",
       "def f(cwd: os.Path): Int = orca.subprocess.QuietProc.call(Seq(\"true\"), cwd).exitCode"
+    ),
+    (
+      "the piped subprocess implementation",
+      "OsPipedSubProcess",
+      "orca.fixture",
+      "def f(cwd: os.Path): orca.subprocess.PipedCliProcess = orca.subprocess.OsPipedSubProcess.spawn(Seq(\"true\"), Map.empty, cwd)"
     ),
     (
       "the process scan behind a spawned process",
       "CookieScan",
+      "orca.fixture",
       "def f(c: orca.subprocess.EnvCookie): Int = orca.subprocess.CookieScan.carrying(c).size"
     ),
-    ("os-lib directly", "read", "def f(p: os.Path): String = os.read(p)"),
+    (
+      "the HTTP client implementation",
+      "JdkHttpClient",
+      "orca.effect",
+      "def f(): HttpClient = JdkHttpClient(\"http://127.0.0.1:1\", \"u\", \"p\")"
+    ),
+    (
+      "the local HTTP server implementation",
+      "LocalServer",
+      "orca.effect",
+      "def f()(using ox.Ox): Int = LocalServer.serve(Nil, scala.concurrent.duration.Duration(1, \"s\"))"
+    ),
+    (
+      "os-lib directly",
+      "read",
+      "orca.fixture",
+      "def f(p: os.Path): String = os.read(p)"
+    ),
     (
       "FileSystem.ambient",
       "ambient",
+      "orca.fixture",
       "def f(): orca.effect.FileSystem = orca.effect.FileSystem.ambient"
     ),
     (
       "Processes.ambient",
       "ambient",
+      "orca.fixture",
       "def f(): orca.effect.Processes = orca.effect.Processes.ambient"
     ),
     (
       "Network.ambient",
       "ambient",
+      "orca.fixture",
       "def f(): orca.effect.Network = orca.effect.Network.ambient"
     ),
     (
       "an ambient effect passed through an inline facade",
       "read",
+      "orca.fixture",
       "def f(p: os.Path): String = orca.concurrency.supervised(os.read(p))"
     )
   )
 
-  unreachable.foreach: (what, symbol, code) =>
+  unreachable.foreach: (what, symbol, pkg, code) =>
     test(s"NEGATIVE: safe code cannot reference $what"):
-      val errors = Dotc.errorsOf(safeFixture(code))
+      val errors = Dotc.errorsOf(fixtureIn(pkg, code))
       assert(
         errors.exists(e => e.contains("from safe code") && e.contains(symbol)),
         s"expected a safe-mode rejection naming $symbol, got: $errors"
       )
 
-  test("NEGATIVE: safe code cannot reference the HTTP client implementation"):
-    // In its own package: it is `private[effect]`, and must fail for being
-    // unsafe, not for being inaccessible.
+  test("NEGATIVE: a Ref update cannot capture a capability"):
     val errors = Dotc.errorsOf(
-      """package orca.effect
-        |import language.experimental.safe
-        |def f(): HttpClient = JdkHttpClient("http://127.0.0.1:1", "u", "p")
-        |""".stripMargin
+      safeFixture(
+        """import orca.concurrency.Ref
+          |import orca.effect.FileSystem
+          |def f(r: Ref[Int], p: os.Path)(using fs: FileSystem): Unit =
+          |  r.update(n => if fs.isFile(p) then n + 1 else n)
+          |""".stripMargin
+      )
     )
     assert(
-      errors.exists(e =>
-        e.contains("from safe code") && e.contains("JdkHttpClient")
+      errors.exists(
+        _.contains("capability `fs` cannot flow into capture set {}")
       ),
-      s"expected a safe-mode rejection naming JdkHttpClient, got: $errors"
+      s"expected the capture of fs rejected, got: $errors"
     )
 
   test("POSITIVE: safe code uses effects through capabilities"):

@@ -14,30 +14,8 @@ generation.
 
 ## Project layout
 
-```
-orca/
-├── build.sbt / project/
-├── core/       # effect capabilities + their implementations, facades for safe-mode code, JsonData
-├── tools/      # tool traits + os-backed impls (git/gh/fs), internal LLM SPI + session durability, InStage, events, subprocess
-├── flow/       # stage/display/fail + FlowContext/FlowControl; orca.{plan,review,pr,progress}
-├── claude/ codex/ gemini/ opencode/ pi/   # one module per coding-agent backend
-├── lifecycle/  # FlowLifecycle: a run's setup, recovery and teardown; --worktree resolution
-├── runner/     # flow() entry, DefaultFlowContext/DefaultFlowControl, wiring, terminal UI
-└── shell/      # `orca-shell`, the `orca` CLI's interactive front-end (ADR 0021)
-```
-
-Dependency graph:
-
-```
-core    (standalone)
-tools                               → core
-  ├── flow                          → tools
-  │     └── lifecycle               → tools + flow
-  ├── claude / codex / gemini /
-  │     opencode / pi               → tools
-  ├── runner                        → tools + flow + lifecycle + all five backends
-  └── shell                         → runner (published `orca`) + lifecycle
-```
+The module tree and dependency graph are in
+[docs/development.md](docs/development.md#layout).
 
 The runner module owns the `flow` entry point (`package orca`) and wires
 defaults via `DefaultFlowContext` and `DefaultFlowControl` (`package orca.runner`); the stage
@@ -133,7 +111,8 @@ most easily broken:
 
 - **Capability gating.** `FlowContext` (reads + emit; thread-safe) is not a
   capability, so forks receive it freely. Three compile-time capabilities gate
-  side effects: `FlowControl` (authority to start a stage; thread-affine;
+  flow-level side effects (starting stages, LLM runs, workspace writes),
+  separate from core's `FileSystem`/`Processes`/`Network`: `FlowControl` (authority to start a stage; thread-affine;
   unrelated to `FlowContext` — `flow` provides both, and a stage-starting
   helper takes `(using FlowContext, FlowControl)`), and a SPLIT pair of
   stage-bound capability tokens (both in `tools`, `package orca`) — `InStage`,
