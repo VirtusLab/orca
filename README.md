@@ -96,7 +96,7 @@ each task with a review, and opens a PR:
 
 ```scala
 //> using scala 3.9.0
-//> using dep "org.virtuslab::orca:0.2.0"
+//> using dep "org.virtuslab::orca:0.2.1"
 //> using jvm 21
 
 import orca.{*, given}

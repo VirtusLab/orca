@@ -24,7 +24,7 @@ somewhere. This document compares the delivery options.
   separate reference doc to point at.
 - **Release-pinned correctness**: `build.sbt` runs `UpdateVersionInDocs` on
   release (lines ~197–204), rewriting the `//> using dep
-  "org.virtuslab::orca:0.2.0"` lines in `README.md` and the examples. So the
+  "org.virtuslab::orca:0.2.1"` lines in `README.md` and the examples. So the
   README **at a given git tag** always shows the matching dependency
   coordinate — a tag-pinned copy is internally version-consistent for free.
 - **Tag convention**: `git tag -l` → `v0.0.0` … `v0.0.17`, i.e. `vX.Y.Z`.
