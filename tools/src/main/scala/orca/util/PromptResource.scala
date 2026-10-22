@@ -1,5 +1,7 @@
 package orca.util
 
+import orca.safe.prelude.resourceText
+
 /** Loads prompt templates from classpath resources, one `.md` file per template
   * under `src/main/resources/<pkg>/prompts/<name>.md`.
   *
@@ -15,13 +17,11 @@ private[orca] object PromptResource:
     * the classpath root (use a leading `/`).
     */
   def load(path: String): String =
-    val stream = Option(getClass.getResourceAsStream(path)).getOrElse(
+    resourceText(path).getOrElse(
       throw new RuntimeException(
         s"prompt resource not found on classpath: $path"
       )
     )
-    try scala.io.Source.fromInputStream(stream, "UTF-8").mkString
-    finally stream.close()
 
   /** Substitute `{{name}}` placeholders in `template` with the supplied `(name
     * -> value)` pairs. Unreferenced substitutions are ignored; a placeholder

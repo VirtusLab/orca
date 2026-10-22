@@ -7,7 +7,6 @@ import orca.agents.{Agent, BackendTag}
 import orca.tools.{
   GitHubAvailability,
   NoDefaultBase,
-  OsGitTool,
   PrCreateFailed,
   PrHandle,
   PrReadiness,
@@ -17,6 +16,7 @@ import orca.tools.{
 import orca.progress.{BranchMode, ProgressHeader, ProgressStore}
 import orca.sessions.TestSessionStore
 import orca.testkit.{
+  Effects,
   GitRepo,
   PassthroughPrompts,
   PushlessGit,
@@ -128,7 +128,7 @@ private[pr] def seededPrRepo(
     os.write(dir / "code.txt", "real code")
     val _ = os.proc("git", "add", "code.txt").call(cwd = dir)
     val _ = os.proc("git", "commit", "-m", "work").call(cwd = dir)
-  val store = ProgressStore.default(dir, RunKey.of("p"))
+  val store = ProgressStore.default(Effects.fs, dir, RunKey.of("p"))
   given WorkspaceWrite = WorkspaceWrite.unsafe
   val startingBranch = branchMode match
     case BranchMode.Created => startBranch
@@ -176,7 +176,7 @@ private[pr] def prRun(
       new EventDispatcher(List(listener)),
       "p",
       wiredGit = Some(
-        new RecordingGit(new OsGitTool(dir), calls, branchDiff, push, base)
+        new RecordingGit(Effects.gitTool(dir), calls, branchDiff, push, base)
       ),
       wiredGh = Some(
         new RecordingGh(calls, availability, createPr, prBodies, prReadinesses)

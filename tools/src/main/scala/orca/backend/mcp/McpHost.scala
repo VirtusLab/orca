@@ -1,20 +1,11 @@
 package orca.backend.mcp
 
-import chimp.protocol.ToolContent
-import chimp.server.{
-  McpServer,
-  NoStructuredOutput,
-  ServerContext,
-  ServerTool,
-  ToolResult
-}
-import orca.backend.TurnResources
+import orca.effect.Network
+import orca.mcp
 import ox.Ox
-import sttp.shared.Identity
-import sttp.tapir.server.netty.sync.NettySyncServer
+import orca.safe.prelude.NonFatal
 
-import scala.concurrent.duration.{DurationInt, FiniteDuration}
-import scala.util.control.NonFatal
+import scala.concurrent.duration.FiniteDuration
 
 /** One MCP server orca stands up for a single agent turn: a Netty binding on
   * `127.0.0.1` at an ephemeral port, serving whatever tools it was started
@@ -28,7 +19,7 @@ private[backend] class McpHost private[mcp] (val port: Int):
   /** The URL an MCP client (claude's `.mcp.json`, codex's
     * `mcp_servers.<name>.url`) should target.
     */
-  val url: String = s"${McpHost.UrlPrefix}$port/mcp"
+  val url: String = s"${McpHost.UrlPrefix}$port/${mcp.endpointPath}"
 
 private[backend] object McpHost:
 
@@ -54,12 +45,9 @@ private[backend] object McpHost:
     else text.take(MaxOutputChars) + CutMarker
 
   private def bounded(
-      result: ToolResult[NoStructuredOutput]
-  ): ToolResult[NoStructuredOutput] =
-    result.copy(content = result.content.map:
-      case t: ToolContent.Text => t.copy(text = bounded(t.text))
-      case other               => other
-    )
+      result: mcp.Result
+  ): mcp.Result =
+    mcp.mapText(result)(bounded)
 
   /** The two guarantees every result served here carries: its text stays within
     * [[MaxOutputChars]] whether the result is an error or not, and a handler
@@ -67,53 +55,35 @@ private[backend] object McpHost:
     * cannot read.
     */
   private def guardedResult(
-      result: => ToolResult[NoStructuredOutput]
-  ): ToolResult[NoStructuredOutput] =
+      result: => mcp.Result
+  ): mcp.Result =
     try bounded(result)
     catch
       case NonFatal(e) =>
-        bounded(ToolResult.error(Option(e.getMessage).getOrElse(e.toString)))
+        bounded(mcp.error(Option(e.getMessage).getOrElse(e.toString)))
 
   /** Put a tool's logic behind [[guardedResult]]. [[start]] applies this to
     * every tool it binds, so the guard is not something a tool opts into.
     *
-    * The [[NoStructuredOutput]] bound keeps a second, unbounded channel out of
-    * reach: `withStructured` moves the type parameter, and `ServerTool` is
-    * invariant in it, so a tool built that way no longer fits [[start]]'s list.
+    * The `NoStructuredOutput` bound in [[mcp.Tool]] keeps a second, unbounded
+    * channel out of reach: `withStructured` moves the type parameter, and
+    * `ServerTool` is invariant in it, so a tool built that way no longer fits
+    * [[start]]'s list.
     */
-  private[mcp] def guarded[I](
-      t: ServerTool[I, NoStructuredOutput, Identity, ServerContext[Identity]]
-  ): ServerTool[I, NoStructuredOutput, Identity, ServerContext[Identity]] =
+  private[mcp] def guarded[I](t: mcp.Tool[I]): mcp.Tool[I] =
     t.copy(logic =
       (in, ctx, headers) => guardedResult(t.logic(in, ctx, headers))
     )
 
   /** Bind `tools` on a fresh port in the enclosing scope, each [[guarded]].
     *
-    * `toolTimeout` becomes Netty's request timeout, raising it from the
-    * framework default so a slow tool doesn't have its connection closed
-    * mid-call; `idleTimeout` adds a minute of slop because Netty requires it to
-    * exceed the request timeout.
-    *
-    * The binding stops when the scope ends: tapir's `start()` leaves teardown
-    * to the caller, and a leaked binding strands its event-loop threads for the
-    * life of the JVM.
+    * `toolTimeout` becomes the request timeout, raising it from the framework
+    * default so a slow tool doesn't have its connection closed mid-call.
     */
   private[mcp] def start(
-      tools: List[
-        ServerTool[?, NoStructuredOutput, Identity, ServerContext[Identity]]
-      ],
+      net: Network,
+      tools: List[mcp.Tool[?]],
       toolTimeout: FiniteDuration
   )(using Ox): McpHost =
-    val binding = TurnResources.use(
-      NettySyncServer()
-        .port(0)
-        .modifyConfig(
-          _.requestTimeout(toolTimeout).idleTimeout(toolTimeout + 1.minute)
-        )
-        .addEndpoint(
-          McpServer(tools = tools.map(t => guarded(t))).endpoint(List("mcp"))
-        )
-        .start()
-    )(_.stop())
-    new McpHost(binding.port)
+    val endpoint = mcp.endpoint(tools.map(t => guarded(t)))
+    new McpHost(net.serveLocal(List(endpoint), toolTimeout))

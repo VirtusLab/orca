@@ -2,6 +2,7 @@ package orca.shell.actions
 
 import org.jline.terminal.Terminal
 import orca.{OrcaArgs, OrcaDir, RunTarget, Uncommitted}
+import orca.effect.FileSystem
 import orca.shell.{OrcaBuild, ShellEnv}
 import orca.shell.create.{
   AuthoringSandbox,
@@ -155,7 +156,7 @@ private[shell] object AuthorAction:
 
   private def extractApiMaterial(sandbox: os.Path): os.Path =
     FlowAuthoring.extractApiMaterial(
-      OrcaDir.ensureCache(sandbox),
+      OrcaDir(FileSystem.ambient).ensureCache(sandbox),
       OrcaBuild.current.version
     )
 

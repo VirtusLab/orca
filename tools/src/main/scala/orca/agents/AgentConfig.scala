@@ -1,8 +1,8 @@
 package orca.agents
 
+import orca.concurrency
 import ox.scheduling.Schedule
-
-import scala.concurrent.duration.DurationInt
+import orca.safe.prelude.DurationInt
 
 case class AgentConfig(
     model: Option[Model] = None,
@@ -47,14 +47,14 @@ case class AgentConfig(
     */
   def autoApproveAlso(tool: String): AgentConfig =
     autoApprove match
-      case AutoApprove.All => this
+      case AutoApprove.All         => this
       case AutoApprove.Only(tools) =>
         copy(autoApprove = AutoApprove.Only(tools + tool))
 
 object AgentConfig:
 
   val defaultRetrySchedule: Schedule =
-    Schedule.exponentialBackoff(1.second).maxRetries(3)
+    concurrency.exponentialBackoff(1.second).maxRetries(3)
 
 enum AutoApprove:
   case All

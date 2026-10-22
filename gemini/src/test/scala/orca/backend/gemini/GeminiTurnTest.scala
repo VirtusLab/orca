@@ -1,6 +1,7 @@
 package orca.backend.gemini
 
 import orca.agents.{Model, WireSessionId}
+import orca.effect.Network
 import orca.events.TurnDebit
 import orca.testkit.Usages.usage
 import orca.{OrcaFlowException, OrcaInteractiveCancelled}
@@ -544,7 +545,7 @@ class GeminiTurnTest extends munit.FunSuite:
     live.cancel()
     live.awaitResult() match
       case Left(_: OrcaInteractiveCancelled) => ()
-      case other =>
+      case other                             =>
         fail(s"expected Left(OrcaInteractiveCancelled), got: $other")
     assertEquals(process.sigIntCount, 1)
 
@@ -588,7 +589,7 @@ class GeminiTurnTest extends munit.FunSuite:
       val process = new FakePipedCliProcess()
       val live = GeminiTurn(
         process,
-        askUser = AskUserChannel.Mcp(AskUserSession.allocate())
+        askUser = AskUserChannel.Mcp(AskUserSession.allocate(Network.ambient))
       )
 
       process.enqueueStdout("""{"type":"init","session_id":"s"}""")
@@ -625,7 +626,7 @@ class GeminiTurnTest extends munit.FunSuite:
     supervised:
       given BufferCapacity = BufferCapacity(8)
       val process = new FakePipedCliProcess()
-      val askUser = AskUserSession.allocate()
+      val askUser = AskUserSession.allocate(Network.ambient)
       val live =
         GeminiTurn(process, askUser = AskUserChannel.Mcp(askUser))
       val bridge = askUser.bridge

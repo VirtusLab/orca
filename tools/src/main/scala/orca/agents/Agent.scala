@@ -5,12 +5,10 @@ import orca.backend.{AgentBackend, AgentResult, Interaction}
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.json.JsonData
 import orca.util.TextUtil
-import org.slf4j.LoggerFactory
-import ox.tap
+import orca.safe.Logger
+import orca.safe.prelude.{NonFatal, tap}
 
-import scala.util.control.NonFatal
-
-private val log = LoggerFactory.getLogger("orca.agents")
+private val log = Logger("orca.agents")
 
 /** An LLM adapter usable from flow scripts — the handle you call from a
   * `flow(...)` block (`claude`, `codex`, etc.). Three rungs, by how long the
@@ -44,7 +42,7 @@ final class Agent[B <: BackendTag] private (
     prompts: Prompts,
     events: OrcaListener,
     interaction: Interaction,
-    naming: AgentName,
+    private val naming: AgentName,
     /** Role tag for this agent in the event stream — a second axis on
       * `OrcaEvent.UnpricedTurn` alongside [[name]]. The review loop sets
       * `Some("reviewer")` via [[withRole]] so `CostTracker` can subtotal
@@ -276,7 +274,7 @@ final class Agent[B <: BackendTag] private (
   ): Unit =
     cause match
       case Some(e) => log.warn(s"$purpose one-shot failed: $reason", e)
-      case None    => log.warn("{} one-shot failed: {}", purpose, reason)
+      case None    => log.warn(s"$purpose one-shot failed: $reason")
     events.onEvent(
       OrcaEvent.Step(
         s"$purpose agent failed ($reason) — using the default $purpose instead"
@@ -341,6 +339,14 @@ final class Agent[B <: BackendTag] private (
     */
   private[orca] def sharesBackendWith(other: Agent[?]): Boolean =
     backend eq other.backend
+
+  /** `other` as an `Agent[B]` — its settings on this agent's backend — or
+    * `None` when it does not run on that backend ([[sharesBackendWith]]).
+    */
+  private[orca] def sibling(other: Agent[?]): Option[Agent[B]] =
+    Option.when(sharesBackendWith(other))(
+      copy(config = other.config, naming = other.naming, role = other.role)
+    )
 
   /** What the NEXT call on `session` does with the backend's conversation:
     * continue one it already holds, or open a fresh one that needs re-seeding —

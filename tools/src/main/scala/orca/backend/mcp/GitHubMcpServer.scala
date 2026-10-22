@@ -1,19 +1,19 @@
 package orca.backend.mcp
 
-import chimp.server.*
-import io.circe.Codec
+import orca.effect.Network
+import orca.json.JsonData
+import orca.mcp
 import orca.tools.{Comment, GitHubTool, Issue, IssueHandle}
 import ox.Ox
-import sttp.tapir.Schema
+import orca.safe.prelude.DurationInt
 
-import scala.concurrent.duration.{DurationInt, FiniteDuration}
+import scala.concurrent.duration.FiniteDuration
 
 private[mcp] case class GitHubIssueInput(
     owner: String,
     repo: String,
     number: Int
-) derives Codec,
-      Schema
+) derives JsonData
 
 /** The GitHub read a planner needs: an issue or PR's body and conversation.
   * Served host-side through [[GitHubTool]], so the agent never gets `gh` and
@@ -36,16 +36,14 @@ private[backend] object GitHubMcpServer:
     */
   private[orca] val ToolTimeout: FiniteDuration = 2.minutes
 
-  def start(github: GitHubTool)(using Ox): McpHost =
-    val issueTool = tool(IssueSlug)
-      .description(
-        "Read a GitHub issue or pull request: its title, state, author, body " +
-          "and conversation comments. Issues and pull requests share one " +
-          "number sequence, so either kind of number works."
-      )
-      .input[GitHubIssueInput]
-      .handle(in => ToolResult.fromEither(read(github, in)))
-    McpHost.start(List(issueTool), ToolTimeout)
+  def start(net: Network, github: GitHubTool)(using Ox): McpHost =
+    val issueTool = mcp.tool[GitHubIssueInput](
+      IssueSlug,
+      "Read a GitHub issue or pull request: its title, state, author, body " +
+        "and conversation comments. Issues and pull requests share one " +
+        "number sequence, so either kind of number works."
+    )(in => mcp.fromEither(read(github, in)))
+    McpHost.start(net, List(issueTool), ToolTimeout)
 
   /** `IssueHandle.parse` does the validation: `owner` and `repo` are spliced
     * into a `gh api` request path, and its patterns are the ones that already

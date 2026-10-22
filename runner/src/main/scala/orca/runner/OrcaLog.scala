@@ -11,6 +11,7 @@ import ch.qos.logback.core.rolling.{
 }
 import ch.qos.logback.core.util.{Duration, FileSize}
 import orca.{AttemptId, OrcaDir, RunKey}
+import orca.effect.FileSystem
 import org.slf4j.{Logger, LoggerFactory}
 
 import java.nio.charset.StandardCharsets.UTF_8
@@ -60,7 +61,7 @@ private[orca] object OrcaLog:
     * trace.
     */
   def start(workDir: os.Path, key: RunKey, id: AttemptId): OrcaLog =
-    val _ = OrcaDir.ensureRunDir(workDir, key)
+    val _ = OrcaDir(FileSystem.ambient).ensureRunDir(workDir, key)
     val file = OrcaDir.traceLogPath(workDir, key, id)
     loggerContext() match
       case Some(ctx) =>

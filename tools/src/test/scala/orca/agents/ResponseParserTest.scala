@@ -61,6 +61,11 @@ class ResponseParserTest extends munit.FunSuite:
       """{"input":"{\"name\":\"widget\",\"count\":3}"}"""
     assertEquals(ResponseParser.parse[ParsedSample](wrapped), expected)
 
+  test("unwraps a string-encoded envelope value preceded by whitespace"):
+    val wrapped =
+      """{"input": "{\"name\":\"widget\",\"count\":3}"}"""
+    assertEquals(ResponseParser.parse[ParsedSample](wrapped), expected)
+
   test("unwraps a lone input-key envelope, nested-object value"):
     val wrapped = """{"input":{"name":"widget","count":3}}"""
     assertEquals(ResponseParser.parse[ParsedSample](wrapped), expected)

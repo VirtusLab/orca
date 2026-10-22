@@ -6,7 +6,7 @@ import munit.FunSuite
 import orca.{RunKey, StagePath, WorkspaceWrite}
 import orca.gitref.CommitHash
 import orca.json.RawJson
-import orca.testkit.{TempDirs, branchName}
+import orca.testkit.{Effects, TempDirs, branchName}
 
 class ProgressStoreTest extends FunSuite:
 
@@ -25,7 +25,8 @@ class ProgressStoreTest extends FunSuite:
 
   test("writeHeader then load returns the header with empty entries"):
     val workDir = TempDirs.dir()
-    val store = ProgressStore.default(workDir, RunKey.of("my prompt"))
+    val store =
+      ProgressStore.default(Effects.fs, workDir, RunKey.of("my prompt"))
     store.writeHeader(header)
     val loaded = store.load()
     assertEquals(loaded, Some(ProgressLog(header, Nil, None, Nil)))
@@ -34,7 +35,8 @@ class ProgressStoreTest extends FunSuite:
     "upsertEntry with same id replaces (last write wins), different id appends"
   ):
     val workDir = TempDirs.dir()
-    val store = ProgressStore.default(workDir, RunKey.of("my prompt"))
+    val store =
+      ProgressStore.default(Effects.fs, workDir, RunKey.of("my prompt"))
     store.writeHeader(header)
 
     val a =
@@ -62,7 +64,8 @@ class ProgressStoreTest extends FunSuite:
 
   test("recordStageStart replaces the base recorded for a stage"):
     val workDir = TempDirs.dir()
-    val store = ProgressStore.default(workDir, RunKey.of("my prompt"))
+    val store =
+      ProgressStore.default(Effects.fs, workDir, RunKey.of("my prompt"))
     store.writeHeader(header)
     val id = StagePath.FlowBody.child("s", 0)
     val commitA = CommitHash.from("a" * 40).get
@@ -76,7 +79,8 @@ class ProgressStoreTest extends FunSuite:
 
   test("upsertEntry drops the completed stage's recorded start"):
     val workDir = TempDirs.dir()
-    val store = ProgressStore.default(workDir, RunKey.of("my prompt"))
+    val store =
+      ProgressStore.default(Effects.fs, workDir, RunKey.of("my prompt"))
     store.writeHeader(header)
     val done = StagePath.FlowBody.child("done", 0)
     val open = StageStart(
@@ -93,7 +97,8 @@ class ProgressStoreTest extends FunSuite:
     // subtree (`"resultJson":{…}`), not an escaped string blob — keeping the
     // on-disk log directly readable when debugging.
     val workDir = TempDirs.dir()
-    val store = ProgressStore.default(workDir, RunKey.of("my prompt"))
+    val store =
+      ProgressStore.default(Effects.fs, workDir, RunKey.of("my prompt"))
     store.writeHeader(header)
     store.upsertEntry(
       StageEntry(
@@ -106,14 +111,16 @@ class ProgressStoreTest extends FunSuite:
 
   test("load collapses a corrupt file to None"):
     val workDir = TempDirs.dir()
-    val store = ProgressStore.default(workDir, RunKey.of("my prompt"))
+    val store =
+      ProgressStore.default(Effects.fs, workDir, RunKey.of("my prompt"))
     store.writeHeader(header)
     os.write.over(store.path, "not json {{{")
     assertEquals(store.load(), None: Option[ProgressLog])
 
   test("upsertEntry before writeHeader throws the absent-log message"):
     val workDir = TempDirs.dir()
-    val store = ProgressStore.default(workDir, RunKey.of("my prompt"))
+    val store =
+      ProgressStore.default(Effects.fs, workDir, RunKey.of("my prompt"))
     val ex = intercept[IllegalStateException]:
       store.upsertEntry(
         StageEntry(
@@ -133,7 +140,8 @@ class ProgressStoreTest extends FunSuite:
     // as "upsertEntry called before writeHeader" — that message is wrong when
     // writeHeader plainly did run (the file exists).
     val workDir = TempDirs.dir()
-    val store = ProgressStore.default(workDir, RunKey.of("my prompt"))
+    val store =
+      ProgressStore.default(Effects.fs, workDir, RunKey.of("my prompt"))
     store.writeHeader(header)
     os.write.over(store.path, "not json {{{")
     val ex = intercept[IllegalStateException]:
@@ -156,7 +164,8 @@ class ProgressStoreTest extends FunSuite:
   test("restoreIfRemoved puts back a peeked log whose directory is gone"):
     // A stash of the only file in `.orca/runs/` takes the directory with it.
     val workDir = TempDirs.dir()
-    val store = ProgressStore.default(workDir, RunKey.of("my prompt"))
+    val store =
+      ProgressStore.default(Effects.fs, workDir, RunKey.of("my prompt"))
     store.writeHeader(header)
     val peeked = store.peek().fold(fail(_), identity)
     os.remove.all(store.path / os.up)
@@ -165,7 +174,8 @@ class ProgressStoreTest extends FunSuite:
 
   test("restoreIfRemoved leaves a log that is still there untouched"):
     val workDir = TempDirs.dir()
-    val store = ProgressStore.default(workDir, RunKey.of("my prompt"))
+    val store =
+      ProgressStore.default(Effects.fs, workDir, RunKey.of("my prompt"))
     store.writeHeader(header)
     val peeked = store.peek().fold(fail(_), identity)
     os.write.over(store.path, "edited since")
@@ -174,7 +184,8 @@ class ProgressStoreTest extends FunSuite:
 
   test("restoreIfRemoved puts back an unparseable log too"):
     val workDir = TempDirs.dir()
-    val store = ProgressStore.default(workDir, RunKey.of("my prompt"))
+    val store =
+      ProgressStore.default(Effects.fs, workDir, RunKey.of("my prompt"))
     os.write(store.path, "not json", createFolders = true)
     val peeked = store.peek().fold(fail(_), identity)
     assert(peeked.isInstanceOf[PeekedLog.Unparseable], peeked)

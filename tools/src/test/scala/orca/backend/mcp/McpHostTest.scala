@@ -3,6 +3,10 @@ package orca.backend.mcp
 import chimp.protocol.ToolContent
 import chimp.server.{NoStructuredOutput, ServerContext, ToolResult, tool}
 import io.circe.Codec
+import io.circe.parser.parse
+import orca.effect.Network
+import orca.json.{JsonData, SchemaDerivation}
+import orca.mcp
 import ox.supervised
 import sttp.shared.Identity
 import sttp.tapir.Schema
@@ -11,7 +15,12 @@ import java.net.URI
 import java.net.http.{HttpClient, HttpRequest, HttpResponse}
 import scala.concurrent.duration.DurationInt
 
-private case class Probe(text: String) derives Codec, Schema
+private case class Probe(text: String) derives Codec
+
+private object Probe:
+  given Schema[Probe] = SchemaDerivation.derived
+
+private case class Count(n: Int) derives JsonData
 
 class McpHostTest extends munit.FunSuite:
 
@@ -67,7 +76,7 @@ class McpHostTest extends munit.FunSuite:
         tool("probe")
           .input[Probe]
           .handle(_ => throw new RuntimeException(message))
-      val host = McpHost.start(List(throwing), 10.seconds)
+      val host = McpHost.start(Network.ambient, List(throwing), 10.seconds)
       val response = call(
         host.url,
         """{"jsonrpc":"2.0","id":1,"method":"tools/call",""" +
@@ -81,6 +90,25 @@ class McpHostTest extends munit.FunSuite:
         response.body().contains(s"cut after ${McpHost.MaxOutputChars} char"),
         response.body().takeRight(200)
       )
+
+  test("input that fails to decode gets a one-line JSON-RPC error"):
+    // chimp answers a decode failure with an `Invalid arguments` error, not a
+    // tool result; without the facade's decoder its message would carry
+    // jsoniter's multi-line buffer dump.
+    supervised:
+      val counting = mcp.tool[Count]("count", "")(c => mcp.text(c.n.toString))
+      val host = McpHost.start(Network.ambient, List(counting), 10.seconds)
+      val response = call(
+        host.url,
+        """{"jsonrpc":"2.0","id":1,"method":"tools/call",""" +
+          """"params":{"name":"count","arguments":{"n":"7"}}}"""
+      )
+      assertEquals(response.statusCode(), 200, response.body())
+      val error = parse(response.body()).toOption.get.hcursor.downField("error")
+      assertEquals(error.get[Int]("code"), Right(-32602), response.body())
+      val message = error.get[String]("message").toOption.get
+      assert(message.contains("illegal number"), message)
+      assert(!message.contains('\n'), message)
 
   /** POST one JSON-RPC message to a running host. The client is closed rather
     * than left to a finalizer: its idle keep-alive connection otherwise holds

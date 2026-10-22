@@ -1,6 +1,7 @@
 package orca.backend.codex
 
-import orca.testkit.OpenTurn
+import orca.effect.Network
+import orca.testkit.{Effects, OpenTurn}
 import orca.AgentTurnFailed
 import orca.agents.{
   AutoApprove,
@@ -39,7 +40,16 @@ class CodexIntegrationTest extends munit.FunSuite:
       workDir: os.Path = TempDirs.dir()
   )(body: ox.Ox ?=> CodexBackend => Unit): Unit =
     SupervisedBackend.using(
-      new CodexBackend(OsProcCliRunner, workDir = workDir)
+      new CodexBackend(
+        Network.ambient,
+        Effects.fs,
+        OsProcCliRunner(Effects.procs),
+        CodexBackend.rolloutProbe(
+          Effects.fs,
+          os.home / ".codex" / "sessions"
+        ),
+        workDir = workDir
+      )
     )(body)
 
   private val unsandboxed: AgentConfig =

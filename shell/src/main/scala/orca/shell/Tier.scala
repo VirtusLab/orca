@@ -1,6 +1,7 @@
 package orca.shell
 
 import orca.OrcaDir
+import orca.effect.FileSystem
 import ox.tap
 
 /** Where the shell writes a flow or settings file: the project's committed
@@ -17,8 +18,9 @@ private[shell] object Tier:
       */
     def ensureFlowsDir(using env: ShellEnv): os.Path =
       tier match
-        case Tier.Project => OrcaDir.ensureFlows(env.workDir)
-        case Tier.Global  => env.configHome.flows.tap(os.makeDir.all(_))
+        case Tier.Project =>
+          OrcaDir(FileSystem.ambient).ensureFlows(env.workDir)
+        case Tier.Global => env.configHome.flows.tap(os.makeDir.all(_))
 
     /** The tier's settings file: `.orca/settings.properties` under `workDir`,
       * or the global `settings.properties`.

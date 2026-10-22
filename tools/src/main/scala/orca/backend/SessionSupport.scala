@@ -3,9 +3,9 @@ package orca.backend
 import orca.AgentTurnFailed
 import orca.events.TurnDebit
 import orca.agents.{BackendTag, SessionId, TurnDispatch, WireSessionId, onWire}
-import org.slf4j.LoggerFactory
-
-import scala.util.control.NonFatal
+import orca.safe.Logger
+import orca.concurrency.Ref
+import orca.safe.prelude.NonFatal
 
 /** What the next turn against a client id does with the backend's conversation
   * — the one answer both the prompt side (re-seed or not) and the wire side
@@ -74,16 +74,16 @@ private[orca] enum IdScheme:
   */
 private[orca] final class SessionSupport[B <: BackendTag] private (
     scheme: IdScheme,
-    probe: Option[String => Boolean]
+    probe: Option[String -> Boolean]
 ):
 
+  // Shared across reviewer forks, so not `caps.Mutable` (fails separation
+  // checking there); not an actor, which would serialise `probe` runs.
   /** client id → what is known about its wire id. Under
     * [[IdScheme.ClientClaimed]] the stored wire id is the client id itself.
     */
-  private val entries =
-    new java.util.concurrent.ConcurrentHashMap[String, SessionSupport.Entry[
-      B
-    ]]()
+  private val entries: Ref[Map[String, SessionSupport.Entry[B]]] =
+    Ref(Map.empty)
 
   /** What the next turn against `client` does — see [[Dispatch]].
     *
@@ -100,23 +100,27 @@ private[orca] final class SessionSupport[B <: BackendTag] private (
     */
   def dispatchFor(client: SessionId[B]): Dispatch[B] =
     val key = SessionId.value(client)
-    Option(entries.get(key)) match
+    entries.get.get(key) match
       case Some(SessionSupport.Entry.Confirmed(wire, origin)) =>
         Dispatch.Resume(wire, origin)
       case Some(rehydrated @ SessionSupport.Entry.Rehydrated(wire)) =>
         if probe.forall(holds(_, WireSessionId.value(wire))) then
-          val _ =
-            entries.replace(key, rehydrated, confirmedEarlierAttempt(wire))
+          val confirmed = confirmedEarlierAttempt(wire)
+          entries.update: m =>
+            if m.get(key).contains(rehydrated) then m.updated(key, confirmed)
+            else m
           Dispatch.Resume(wire, ResumeOrigin.EarlierAttempt)
         else
           // Dropped so this attempt's next commit (`putIfAbsent`) records the
           // conversation the re-seeded turn opens, not the lost one.
-          val _ = entries.remove(key, rehydrated)
+          entries.update: m =>
+            if m.get(key).contains(rehydrated) then m - key else m
           fresh(client)
       case None =>
         heldClaim(client) match
           case Some(claim) =>
-            val _ = entries.putIfAbsent(key, confirmedEarlierAttempt(claim))
+            val confirmed = confirmedEarlierAttempt(claim)
+            entries.update(SessionSupport.putIfAbsent(_, key, confirmed))
             Dispatch.Resume(claim, ResumeOrigin.EarlierAttempt)
           case None => fresh(client)
 
@@ -139,10 +143,9 @@ private[orca] final class SessionSupport[B <: BackendTag] private (
     */
   def rehydrate(client: SessionId[B], wire: WireSessionId[B]): Unit =
     if isRecordable(wire) then
-      val _ = entries.putIfAbsent(
-        SessionId.value(client),
-        SessionSupport.Entry.Rehydrated(wire)
-      )
+      val key = SessionId.value(client)
+      val entry = SessionSupport.Entry.Rehydrated(wire)
+      entries.update(SessionSupport.putIfAbsent(_, key, entry))
 
   /** Record the client→wire mapping after an interactive turn, so a follow-up
     * call on the same client id resumes the right thread.
@@ -160,8 +163,8 @@ private[orca] final class SessionSupport[B <: BackendTag] private (
     val safe = SessionId.isSafe(WireSessionId.value(wire))
     if !safe then
       SessionSupport.log.error(
-        "refusing to record invalid wire id ('{}') for resume; the next call re-seeds",
-        WireSessionId.value(wire)
+        s"refusing to record invalid wire id ('${WireSessionId.value(wire)}') " +
+          "for resume; the next call re-seeds"
       )
     safe
 
@@ -190,10 +193,9 @@ private[orca] final class SessionSupport[B <: BackendTag] private (
     val wire = scheme match
       case IdScheme.ClientClaimed => client.onWire
       case IdScheme.ServerMinted  => server
-    val _ = entries.putIfAbsent(
-      SessionId.value(client),
-      SessionSupport.Entry.Confirmed(wire, ResumeOrigin.ThisAttempt)
-    )
+    val key = SessionId.value(client)
+    val entry = SessionSupport.Entry.Confirmed(wire, ResumeOrigin.ThisAttempt)
+    entries.update(SessionSupport.putIfAbsent(_, key, entry))
 
   /** Under [[IdScheme.ClientClaimed]] the client id IS the wire id, so a
     * conversation the backend already holds under it resumes with nothing
@@ -213,7 +215,7 @@ private[orca] final class SessionSupport[B <: BackendTag] private (
   private def heldClaim(client: SessionId[B]): Option[WireSessionId[B]] =
     val id = SessionId.value(client)
     scheme match
-      case IdScheme.ServerMinted => None
+      case IdScheme.ServerMinted  => None
       case IdScheme.ClientClaimed =>
         Option.when(SessionId.isSafe(id) && probe.exists(holds(_, id)))(
           client.onWire
@@ -232,8 +234,7 @@ private[orca] final class SessionSupport[B <: BackendTag] private (
     * claim is known only once a [[dispatchFor]] has asked.
     */
   def persistableWireId(client: SessionId[B]): Option[WireSessionId[B]] =
-    if probe.isDefined then
-      Option(entries.get(SessionId.value(client))).map(_.wire)
+    if probe.isDefined then entries.get.get(SessionId.value(client)).map(_.wire)
     else None
 
   /** The one identity this conversation is known by across events — see
@@ -252,7 +253,10 @@ private[orca] final class SessionSupport[B <: BackendTag] private (
     )
 
 private[orca] object SessionSupport:
-  private val log = LoggerFactory.getLogger(classOf[SessionSupport[?]])
+  private val log = Logger(classOf[SessionSupport[?]].getName)
+
+  private def putIfAbsent[K, V](m: Map[K, V], k: K, v: V): Map[K, V] =
+    if m.contains(k) then m else m.updated(k, v)
 
   /** What [[SessionSupport]] knows about one client's wire id. */
   private enum Entry[B <: BackendTag]:
@@ -270,7 +274,7 @@ private[orca] object SessionSupport:
     */
   def durable[B <: BackendTag](
       scheme: IdScheme,
-      probe: String => Boolean
+      probe: String -> Boolean
   ): SessionSupport[B] =
     new SessionSupport(scheme, Some(probe))
 

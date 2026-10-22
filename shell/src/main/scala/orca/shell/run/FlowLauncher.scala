@@ -287,7 +287,7 @@ private[shell] object FlowLauncher:
       case NextAction.Succeed             => LaunchResult.Ok
       case NextAction.ReportFailure(exit) => LaunchResult.Failed(exit)
       case NextAction.CancelledBySignal   => LaunchResult.Cancelled
-      case NextAction.OfferFallback =>
+      case NextAction.OfferFallback       =>
         fallback match
           case FallbackPolicy.Ask(ui) =>
             ui.confirm(fallbackQuestion(build), default = true) match

@@ -62,7 +62,7 @@ private[orca] object AgentSpec:
   private def splitModel(pinned: String): (String, Option[String]) =
     pinned.indexOf(':') match
       case -1 => (pinned.trim, None)
-      case i =>
+      case i  =>
         (pinned.take(i).trim, Some(pinned.drop(i + 1).trim).filter(_.nonEmpty))
 
   /** `effort`, if the harness accepts it. */
@@ -86,7 +86,7 @@ private[orca] object AgentSpec:
   ): Either[String, (String, Option[Effort])] =
     value.lastIndexOf('@') match
       case -1 => Right((value, None))
-      case i =>
+      case i  =>
         val suffix = value.drop(i + 1).trim
         if !suffix.forall(_.isLetter) then Right((value, None))
         else

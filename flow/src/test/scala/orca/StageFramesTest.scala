@@ -50,3 +50,13 @@ class StageFramesTest extends munit.FunSuite:
     import run.given
     val result = stage("same-thread")("ok")
     assertEquals(result, "ok")
+
+  test("a stage whose base commit throws still consumes its occurrence"):
+    val run = TestRun.create(new EventDispatcher(Nil))
+    val failing = intercept[RuntimeException]:
+      run.control.withStage("s", _ => throw new RuntimeException("no head"))(
+        _ => ()
+      )
+    assertEquals(failing.getMessage, "no head")
+    val next = run.control.withStage("s", _ => None)(identity)
+    assertEquals(next.occurrence, 1)

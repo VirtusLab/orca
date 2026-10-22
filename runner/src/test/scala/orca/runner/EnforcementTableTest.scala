@@ -2,8 +2,10 @@ package orca.runner
 
 import orca.agents.{AutoApprove, BackendTag, Enforcement, ToolSet, TurnDispatch}
 import orca.backend.AgentBackend
+import orca.effect.Network
 import orca.events.OrcaListener
 import orca.subprocess.StubCliRunner
+import orca.tools.OsGitTool
 import orca.backend.claude.ClaudeBackend
 import orca.backend.codex.CodexBackend
 import orca.backend.gemini.GeminiBackend
@@ -11,7 +13,7 @@ import orca.backend.opencode.OpencodeBackend
 import orca.backend.pi.PiBackend
 
 import ox.supervised
-import orca.testkit.{RepoRoot, TempDirs}
+import orca.testkit.{Effects, RepoRoot, TempDirs}
 
 /** The [[AutoApprove]] values the matrix distinguishes. `Only` is split by
   * emptiness because "pre-approve nothing" is a shape some backends encode as
@@ -182,11 +184,29 @@ class EnforcementTableTest extends munit.FunSuite:
     supervised:
       val cli = new StubCliRunner()
       val backends = List[AgentBackend[?]](
-        new ClaudeBackend(cli),
-        new CodexBackend(cli),
-        new GeminiBackend(cli),
-        OpencodeBackend(cli, TempDirs.dir(), OrcaListener.noop),
-        PiBackend.forInspection(cli)
+        new ClaudeBackend(
+          Network.ambient,
+          Effects.fs,
+          cli,
+          new OsGitTool(_, Effects.procs, Effects.fs),
+          (_, _) => false,
+          os.pwd
+        ),
+        new CodexBackend(
+          Network.ambient,
+          Effects.fs,
+          cli,
+          _ => false,
+          os.pwd
+        ),
+        new GeminiBackend(Network.ambient, Effects.fs, cli, os.pwd),
+        OpencodeBackend(
+          cli,
+          TempDirs.dir(),
+          OrcaListener.noop,
+          Network.ambient
+        ),
+        PiBackend.forInspection(Effects.fs, cli, os.pwd)
       )
       use(
         (for

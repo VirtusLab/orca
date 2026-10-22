@@ -1,6 +1,6 @@
 package orca.backend.pi
 
-import orca.testkit.OpenTurn
+import orca.testkit.{Effects, OpenTurn}
 import orca.OrcaDir
 import orca.backend.SystemPromptComposer
 import orca.testkit.Usages.usage
@@ -24,13 +24,21 @@ class PiBackendTest extends munit.FunSuite:
   private def sid: SessionId[BackendTag.Pi.type] =
     SessionId[BackendTag.Pi.type]("00000000-0000-0000-0000-000000000000")
 
-  /** A backend on a throwaway `workDir` — Pi's session dirs live under
-    * `<workDir>/.orca/cache/pi-sessions/`, so the `os.pwd` default would write
-    * them into the repo. Tests that assert on the working dir itself construct
-    * the backend directly with their own.
+  private val fs = Effects.fs
+
+  /** Pi's session dirs live under `<workDir>/.orca/cache/pi-sessions/`, so
+    * `workDir` defaults to a throwaway dir rather than the repo.
     */
-  private def backendWith(runner: SpawnStubCliRunner): PiBackend =
-    new PiBackend(runner, workDir = TempDirs.dir())
+  private def backendWith(
+      runner: SpawnStubCliRunner,
+      workDir: os.Path = TempDirs.dir()
+  ): PiBackend =
+    new PiBackend(
+      fs,
+      runner,
+      PiBackend.transcriptProbe(fs, () => Instant.now()),
+      workDir
+    )
 
   private def successfulProcess(
       message: String = "hello",
@@ -53,7 +61,7 @@ class PiBackendTest extends munit.FunSuite:
     val process = successfulProcess("answer", 10L, 5L)
     val runner = new SpawnStubCliRunner(List(process))
     val workDir = TempDirs.dir()
-    val backend = new PiBackend(runner, workDir = workDir)
+    val backend = backendWith(runner, workDir)
 
     val result =
       backend.runAutonomous("do it", sid, AgentConfig())
@@ -257,14 +265,14 @@ class PiBackendTest extends munit.FunSuite:
     // The read path (a wire id replayed from the progress log, then probed)
     // must stay effect-free — only spawning pi creates the session dirs.
     val workDir = TempDirs.dir()
-    val backend = new PiBackend(new SpawnStubCliRunner(Nil), workDir = workDir)
+    val backend = backendWith(new SpawnStubCliRunner(Nil), workDir)
     backend.sessions.rehydrate(sid, sid.onWire)
     val _ = backend.sessions.dispatchFor(sid)
     assert(!os.exists(workDir / ".orca"))
 
   test("a rehydrated session whose dir holds a transcript resumes"):
     val workDir = TempDirs.dir()
-    val backend = new PiBackend(new SpawnStubCliRunner(Nil), workDir = workDir)
+    val backend = backendWith(new SpawnStubCliRunner(Nil), workDir)
     os.write(
       OrcaDir.piSessionsPath(workDir) / SessionId.value(sid) / "session.jsonl",
       transcript(workDir),
@@ -323,7 +331,13 @@ class PiBackendTest extends munit.FunSuite:
     * — so it prunes before it is handed back.
     */
   private def backendAt(workDir: os.Path): PiBackend =
-    PiBackend.create(new SpawnStubCliRunner(Nil), workDir, () => now)
+    PiBackend.create(
+      fs,
+      new SpawnStubCliRunner(Nil),
+      PiBackend.transcriptProbe(fs, () => now),
+      workDir,
+      now
+    )
 
   test("a session dir untouched since before the cutoff is pruned"):
     val workDir = TempDirs.dir()
@@ -405,7 +419,7 @@ class PiBackendTest extends munit.FunSuite:
     val victim = target / "victim"
     os.makeDir.all(victim)
     os.mtime.set(victim, cutoff.minusMillis(1).toEpochMilli): Unit
-    val _ = OrcaDir.ensureCache(workDir)
+    val _ = Effects.orcaDir.ensureCache(workDir)
     os.symlink(OrcaDir.piSessionsPath(workDir), target)
 
     val _ = backendAt(workDir)

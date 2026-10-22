@@ -1,5 +1,6 @@
 package orca.backend.mcp
 
+import orca.effect.Network
 import ox.Ox
 import ox.channels.BufferCapacity
 
@@ -15,6 +16,6 @@ private[backend] case class AskUserSession(
 
 private[backend] object AskUserSession:
 
-  def allocate()(using Ox, BufferCapacity): AskUserSession =
+  def allocate(net: Network)(using Ox, BufferCapacity): AskUserSession =
     val bridge = new AskUserBridge
-    AskUserSession(bridge, AskUserMcpServer.start(bridge))
+    AskUserSession(bridge, AskUserMcpServer.start(net, bridge))

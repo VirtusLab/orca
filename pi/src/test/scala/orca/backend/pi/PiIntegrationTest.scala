@@ -9,7 +9,9 @@ import orca.agents.{
   onWire
 }
 import orca.subprocess.OsProcCliRunner
-import orca.testkit.TempDirs
+import orca.testkit.{Effects, TempDirs}
+
+import java.time.Instant
 
 /** End-to-end smoke test against the real `pi` CLI. Gated on `ORCA_INTEGRATION`
   * so normal unit test runs do not require Pi to be installed or authenticated.
@@ -24,11 +26,22 @@ class PiIntegrationTest extends munit.FunSuite:
     import scala.concurrent.duration.DurationInt
     2.minutes
 
+  /** Built the way `PiAgents.default` builds it. */
+  private def realBackend(workDir: os.Path): PiBackend =
+    val fs = Effects.fs
+    PiBackend.create(
+      fs,
+      OsProcCliRunner(Effects.procs),
+      PiBackend.transcriptProbe(fs, () => Instant.now()),
+      workDir,
+      Instant.now()
+    )
+
   private def fresh: SessionId[BackendTag.Pi.type] =
     SessionId.fresh[BackendTag.Pi.type]
 
   test("RPC autonomous prompt returns requested literal output"):
-    val backend = PiBackend.create(OsProcCliRunner, workDir = TempDirs.dir())
+    val backend = realBackend(TempDirs.dir())
     val result = backend.runAutonomous(
       prompt = "Reply with the single word: READY",
       session = fresh,
@@ -44,8 +57,7 @@ class PiIntegrationTest extends munit.FunSuite:
     val session = fresh
     val config = AgentConfig().copy(tools = ToolSet.ReadOnly)
 
-    val _ = PiBackend
-      .create(OsProcCliRunner, workDir = workDir)
+    val _ = realBackend(workDir)
       .runAutonomous(
         prompt = "Remember the word BANANA. Reply with the single word: OK",
         session = session,
@@ -54,7 +66,7 @@ class PiIntegrationTest extends munit.FunSuite:
 
     // A second instance stands in for the next orca run: the wire id comes back
     // from the run's event log, and only Pi's on-disk session dir carries context.
-    val next = PiBackend.create(OsProcCliRunner, workDir = workDir)
+    val next = realBackend(workDir)
     next.sessions.rehydrate(session, session.onWire)
     assertEquals(
       next.sessions.dispatchFor(session).asTurnDispatch,

@@ -1,12 +1,7 @@
 package orca.util
 
-import java.nio.ByteBuffer
-import java.nio.channels.FileChannel
-import java.nio.file.StandardOpenOption
-import java.util.UUID
-
-import scala.util.Using
-import scala.util.control.NonFatal
+import orca.effect.FileSystem
+import orca.safe.prelude.{*, given}
 
 /** Whole-file replacement that a kill cannot tear: the content goes to a temp
   * file, is flushed to disk, then renamed over the target. A reader sees the
@@ -19,11 +14,16 @@ private[orca] object AtomicFile:
     * symlink at `path` rather than writing through it. `path` is untouched and
     * the temp file gone when this throws.
     */
-  def replace(path: os.Path, stagingDir: os.Path, bytes: Array[Byte]): Unit =
-    val tmp = stagingDir / s".${path.last}.${UUID.randomUUID()}.tmp"
+  def replace(
+      fs: FileSystem,
+      path: os.Path,
+      stagingDir: os.Path,
+      bytes: IArray[Byte]
+  ): Unit =
+    val tmp = stagingDir / s".${path.last}.${randomUuid()}.tmp"
     try
-      writeDurably(tmp, bytes)
-      try os.move(tmp, path, replaceExisting = true, atomicMove = true)
+      fs.writeNewDurably(tmp, bytes)
+      try fs.moveAtomically(tmp, path)
       catch
         // Some filesystems (network mounts, some container overlay/bind mounts)
         // reject ATOMIC_MOVE even for a same-directory rename. Torn writes are
@@ -31,24 +31,8 @@ private[orca] object AtomicFile:
         // concurrent readers is unavailable), so a plain move is a safe
         // fallback.
         case _: java.nio.file.AtomicMoveNotSupportedException =>
-          os.move(tmp, path, replaceExisting = true)
+          fs.moveReplacing(tmp, path)
     catch
       case NonFatal(e) =>
-        if os.exists(tmp) then os.remove(tmp): Unit
+        if fs.exists(tmp) then fs.remove(tmp)
         throw e
-
-  /** Create `file` and flush `bytes` to disk before returning. `CREATE_NEW`
-    * rather than `os.temp`, so the file gets the umask's permissions, not
-    * owner-only ones the rename would carry onto the target.
-    */
-  private def writeDurably(file: os.Path, bytes: Array[Byte]): Unit =
-    Using.resource(
-      FileChannel.open(
-        file.toNIO,
-        StandardOpenOption.CREATE_NEW,
-        StandardOpenOption.WRITE
-      )
-    ): channel =>
-      val buffer = ByteBuffer.wrap(bytes)
-      while buffer.hasRemaining do channel.write(buffer): Unit
-      channel.force(true)

@@ -2,10 +2,9 @@ package orca.agents
 
 import com.github.plokhotnyuk.jsoniter_scala.core.{
   JsonReaderException,
-  JsonValueCodec,
-  readFromString
+  JsonValueCodec
 }
-import io.circe.parser.{parse as parseCirceJson}
+import orca.json.{JsonCodec, RawJson}
 
 import scala.annotation.tailrec
 import scala.util.matching.Regex
@@ -45,12 +44,12 @@ private[agents] object ResponseParser:
     val parseResults = candidates.map(tryParse[O])
     parseResults.collectFirst { case Right(value) => value } match
       case Some(value) => value
-      case None =>
+      case None        =>
         candidates.flatMap(unwrapInputEnvelope[O]).collectFirst {
           case Right(value) => value
         } match
           case Some(value) => value
-          case None =>
+          case None        =>
             val lastError = parseResults.collect { case Left(e) => e }.last
             throw new MalformedAgentOutputException(
               rawOutput = raw,
@@ -61,7 +60,7 @@ private[agents] object ResponseParser:
   private def tryParse[O: JsonValueCodec](
       candidate: String
   ): Either[JsonReaderException, O] =
-    try Right(readFromString[O](candidate))
+    try Right(JsonCodec.readString[O](candidate))
     catch case e: JsonReaderException => Left(e)
 
   /** Some backends (observed: opencode routing a reviewer call through
@@ -77,14 +76,20 @@ private[agents] object ResponseParser:
   private def unwrapInputEnvelope[O: JsonValueCodec](
       candidate: String
   ): Option[Either[JsonReaderException, O]] =
-    for
-      json <- parseCirceJson(candidate).toOption
-      obj <- json.asObject
-      if obj.keys.toList == List("input")
-      value <- obj("input")
-    yield value.asString match
-      case Some(inner) => tryParse[O](inner)
-      case None        => tryParse[O](value.noSpaces)
+    tryParse[InputEnvelope](candidate).toOption.map: envelope =>
+      // jsoniter's raw value keeps the whitespace that follows the colon.
+      val value = envelope.input.value.trim
+      if value.startsWith("\"") then
+        tryParse[String](value).flatMap(tryParse[O])
+      else tryParse[O](value)
+
+  /** A top-level object with the single key `input`. */
+  private case class InputEnvelope(input: RawJson)
+
+  private given JsonValueCodec[InputEnvelope] =
+    JsonCodec.make(using JsonCodec.config.withSkipUnexpectedFields(false))
+
+  private given JsonValueCodec[String] = JsonCodec.make
 
   private def stripFences(raw: String): String =
     raw.trim match

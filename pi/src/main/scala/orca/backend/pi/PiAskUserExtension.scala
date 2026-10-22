@@ -1,6 +1,8 @@
 package orca.backend.pi
 
-import orca.backend.TurnResources
+import orca.effect.FileSystem
+import orca.safe.prelude.given
+import orca.util.PromptResource
 import ox.ResourceScope
 
 /** Temporary Pi extension exposing Orca's `ask_user` turn event through Pi's
@@ -19,16 +21,10 @@ private[pi] object PiAskUserExtension:
       "do not ask if you can make a reasonable assumption."
 
   /** Write the extension to a temp file removed when the turn ends. */
-  def write()(using ResourceScope): os.Path =
-    val file = TurnResources.tempDir("orca-pi-ask-user-") / "ask-user.ts"
-    os.write(file, loadSource().replace("__TOOL_NAME__", ToolName))
+  def write(fs: FileSystem)(using ResourceScope): os.Path =
+    val file = fs.tempDir("orca-pi-ask-user-") / "ask-user.ts"
+    fs.writeNew(file, source.replace("__TOOL_NAME__", ToolName))
     file
 
-  private def loadSource(): String =
-    val stream = getClass.getResourceAsStream("/orca/backend/pi/ask-user.ts")
-    require(
-      stream != null,
-      "ask-user.ts resource missing from the pi module jar"
-    )
-    try String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
-    finally stream.close()
+  private def source: String =
+    PromptResource.load("/orca/backend/pi/ask-user.ts")

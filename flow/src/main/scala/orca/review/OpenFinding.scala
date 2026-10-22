@@ -40,10 +40,10 @@ enum OpenReason derives JsonData:
   case Custom(text: String)
 
   def describe: String = this match
-    case Declined(text)  => text
-    case NoFixes         => "fixer reported no fixes"
-    case Unaccounted     => "fixer did not report on it"
-    case CapReached(max) => s"max fix turns ($max) reached"
+    case Declined(text)        => text
+    case NoFixes               => "fixer reported no fixes"
+    case Unaccounted           => "fixer did not report on it"
+    case CapReached(max)       => s"max fix turns ($max) reached"
     case StillFailing(sources) =>
       s"${sources.mkString(", ")} still failing after the fix turn"
     case Custom(text) => text

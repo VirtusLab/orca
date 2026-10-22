@@ -5,7 +5,7 @@ import orca.agents.Agent
 import orca.review.OpenFindings
 import orca.tools.{PrHandle, PrReadiness}
 
-import ox.either.orThrow
+import orca.safe.prelude.orThrow
 
 /** Push the current feature branch and open a PR for it, as three separate
   * [[stage]]s: push → summarise → create. Split because a stage commits only on

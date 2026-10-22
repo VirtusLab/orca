@@ -19,7 +19,7 @@ private[shell] enum OrcaBuild:
 
   /** The `//> using` lines that make a flow script resolve this build. */
   def usingDirectives: String = this match
-    case Release(v) => s"""//> using dep "${OrcaBuild.Module}:$v""""
+    case Release(v)  => s"""//> using dep "${OrcaBuild.Module}:$v""""
     case Snapshot(v) =>
       s"""//> using dep "${OrcaBuild.Module}:$v"
          |//> using repository ivy2Local""".stripMargin
@@ -28,7 +28,7 @@ private[shell] enum OrcaBuild:
     * own orca pin.
     */
   def forceArgs: Seq[String] = this match
-    case Release(v) => Seq("--dep", s"${OrcaBuild.Module}:$v")
+    case Release(v)  => Seq("--dep", s"${OrcaBuild.Module}:$v")
     case Snapshot(v) =>
       Seq("--dep", s"${OrcaBuild.Module}:$v", "--repository", "ivy2Local")
 
@@ -49,3 +49,7 @@ private[shell] object OrcaBuild:
   /** This shell's build, from the version resource `build.sbt` generates. */
   lazy val current: OrcaBuild =
     of(PromptResource.load("/orca/shell/version").trim)
+
+  /** The Scala version flow scripts pin: the one orca is built with. */
+  lazy val scalaVersion: String =
+    PromptResource.load("/orca/shell/scala-version").trim

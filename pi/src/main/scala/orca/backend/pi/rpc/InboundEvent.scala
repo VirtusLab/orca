@@ -1,18 +1,9 @@
 package orca.backend.pi.rpc
 
+import com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec
 import orca.events.Usage
-import orca.json.RawJson
-
-import com.github.plokhotnyuk.jsoniter_scala.core.{
-  JsonValueCodec,
-  readFromString
-}
-import com.github.plokhotnyuk.jsoniter_scala.macros.{
-  ConfiguredJsonValueCodec,
-  JsonCodecMaker
-}
-
-import scala.util.control.NonFatal
+import orca.json.{JsonCodec, RawJson}
+import orca.safe.prelude.NonFatal
 
 /** One JSONL message read from `pi --mode rpc` stdout. The decoder models only
   * fields needed by Orca and collapses protocol additions to [[Unknown]].
@@ -48,7 +39,7 @@ private[pi] case class AgentMessage(
 private[pi] object InboundEvent:
 
   def parse(line: String): InboundEvent =
-    val envelope = readFromString[TopEnvelope](line)
+    val envelope = JsonCodec.readString[TopEnvelope](line)
     envelope.`type` match
       case "response"             => parseResponse(line)
       case "message_update"       => parseMessageUpdate(line)
@@ -60,29 +51,29 @@ private[pi] object InboundEvent:
       case other                  => Unknown(other)
 
   private def parseResponse(line: String): InboundEvent =
-    val wire = readFromString[ResponseWire](line)
+    val wire = JsonCodec.readString[ResponseWire](line)
     Response(wire.id, wire.command, wire.success.getOrElse(false), wire.error)
 
   private def parseMessageUpdate(line: String): InboundEvent =
-    val wire = readFromString[MessageUpdateWire](line)
+    val wire = JsonCodec.readString[MessageUpdateWire](line)
     wire.assistantMessageEvent match
       case Some(raw) => MessageUpdate(parseDelta(raw))
       case None      => Unknown("message_update")
 
   private def parseDelta(raw: RawJson): MessageDelta =
-    val wire = readFromString[DeltaWire](raw.value)
+    val wire = JsonCodec.readString[DeltaWire](raw.value)
     wire.`type` match
-      case "text_delta" => MessageDelta.Text(wire.delta.getOrElse(""))
+      case "text_delta"     => MessageDelta.Text(wire.delta.getOrElse(""))
       case "thinking_delta" =>
         MessageDelta.Thinking(wire.delta.getOrElse(""))
       case other => MessageDelta.Other(other)
 
   private def parseMessageEnd(line: String): InboundEvent =
-    val wire = readFromString[MessageEndWire](line)
+    val wire = JsonCodec.readString[MessageEndWire](line)
     MessageEnd(parseAgentMessage(wire.message))
 
   private def parseAgentMessage(raw: RawJson): AgentMessage =
-    val wire = readFromString[AgentMessageWire](raw.value)
+    val wire = JsonCodec.readString[AgentMessageWire](raw.value)
     AgentMessage(
       role = wire.role.getOrElse(""),
       text = wire.content.map(renderContent).getOrElse(""),
@@ -92,14 +83,14 @@ private[pi] object InboundEvent:
     )
 
   private def parseToolExecutionStart(line: String): InboundEvent =
-    val wire = readFromString[ToolExecutionStartWire](line)
+    val wire = JsonCodec.readString[ToolExecutionStartWire](line)
     ToolExecutionStart(
       wire.toolName.getOrElse(""),
       wire.args.map(_.value).getOrElse("{}")
     )
 
   private def parseToolExecutionEnd(line: String): InboundEvent =
-    val wire = readFromString[ToolExecutionEndWire](line)
+    val wire = JsonCodec.readString[ToolExecutionEndWire](line)
     ToolExecutionEnd(
       toolName = wire.toolName.getOrElse(""),
       ok = !wire.isError.getOrElse(false),
@@ -107,7 +98,7 @@ private[pi] object InboundEvent:
     )
 
   private def parseExtensionUiRequest(line: String): InboundEvent =
-    val wire = readFromString[ExtensionUiRequestWire](line)
+    val wire = JsonCodec.readString[ExtensionUiRequestWire](line)
     // A missing/unknown method falls through to the decoder's `other` branch,
     // which replies with a cancel so Pi never blocks waiting on us.
     val method = wire.method.getOrElse("")
@@ -126,10 +117,11 @@ private[pi] object InboundEvent:
     val trimmed = raw.value.trim
     if trimmed.isEmpty || trimmed == "null" then ""
     else if trimmed.startsWith("\"") then
-      try readFromString[String](trimmed)
+      try JsonCodec.readString[String](trimmed)
       catch case NonFatal(_) => trimmed
     else if trimmed.startsWith("[") then
-      try renderTextBlocks(readFromString[List[ContentBlockWire]](trimmed))
+      try
+        renderTextBlocks(JsonCodec.readString[List[ContentBlockWire]](trimmed))
       catch case NonFatal(_) => trimmed
     else trimmed
 
@@ -137,7 +129,8 @@ private[pi] object InboundEvent:
     val trimmed = raw.value.trim
     if trimmed.isEmpty || trimmed == "null" then ""
     else
-      try renderTextBlocks(readFromString[ToolResultWire](trimmed).content)
+      try
+        renderTextBlocks(JsonCodec.readString[ToolResultWire](trimmed).content)
       catch case NonFatal(_) => trimmed
 
   /** Concatenate the `"type":"text"` blocks; other kinds (tool, image, …) are
@@ -152,30 +145,28 @@ private[pi] object InboundEvent:
     val trimmed = raw.value.trim
     if trimmed.isEmpty || trimmed == "null" then None
     else
-      try Some(readFromString[String](trimmed))
+      try Some(JsonCodec.readString[String](trimmed))
       catch case NonFatal(_) => Some(trimmed)
 
-  private case class TopEnvelope(`type`: String)
-      derives ConfiguredJsonValueCodec
+  private case class TopEnvelope(`type`: String) derives JsonCodec
 
   private case class ResponseWire(
       id: Option[String] = None,
       command: Option[String] = None,
       success: Option[Boolean] = None,
       error: Option[String] = None
-  ) derives ConfiguredJsonValueCodec
+  ) derives JsonCodec
 
   private case class MessageUpdateWire(
       assistantMessageEvent: Option[RawJson] = None
-  ) derives ConfiguredJsonValueCodec
+  ) derives JsonCodec
 
   private case class DeltaWire(
       `type`: String,
       delta: Option[String] = None
-  ) derives ConfiguredJsonValueCodec
+  ) derives JsonCodec
 
-  private case class MessageEndWire(message: RawJson)
-      derives ConfiguredJsonValueCodec
+  private case class MessageEndWire(message: RawJson) derives JsonCodec
 
   private case class AgentMessageWire(
       role: Option[String] = None,
@@ -183,7 +174,7 @@ private[pi] object InboundEvent:
       usage: Option[UsageWire] = None,
       model: Option[String] = None,
       errorMessage: Option[String] = None
-  ) derives ConfiguredJsonValueCodec
+  ) derives JsonCodec
 
   private case class UsageWire(
       input: Option[Long] = None,
@@ -191,7 +182,7 @@ private[pi] object InboundEvent:
       cacheRead: Option[Long] = None,
       cacheWrite: Option[Long] = None,
       cost: Option[CostWire] = None
-  ) derives ConfiguredJsonValueCodec:
+  ) derives JsonCodec:
     // pi subtracts cached tokens from `input` on providers that include them,
     // so `input` is the fresh prompt on every provider it fronts. It also
     // reports `cacheWrite1h`, the 1h-TTL subset of `cacheWrite` — unparsed
@@ -209,31 +200,31 @@ private[pi] object InboundEvent:
       )
 
   private case class CostWire(total: Option[BigDecimal] = None)
-      derives ConfiguredJsonValueCodec
+      derives JsonCodec
 
   private case class ToolExecutionStartWire(
       toolName: Option[String] = None,
       args: Option[RawJson] = None
-  ) derives ConfiguredJsonValueCodec
+  ) derives JsonCodec
 
   private case class ToolExecutionEndWire(
       toolName: Option[String] = None,
       result: Option[RawJson] = None,
       isError: Option[Boolean] = None
-  ) derives ConfiguredJsonValueCodec
+  ) derives JsonCodec
 
   private case class ToolResultWire(
       content: List[ContentBlockWire] = Nil
-  ) derives ConfiguredJsonValueCodec
+  ) derives JsonCodec
 
   private case class ContentBlockWire(
       `type`: String,
       text: Option[String] = None
-  ) derives ConfiguredJsonValueCodec
+  ) derives JsonCodec
 
-  private given JsonValueCodec[String] = JsonCodecMaker.make[String]
+  private given JsonValueCodec[String] = JsonCodec.make[String]
   private given JsonValueCodec[List[ContentBlockWire]] =
-    JsonCodecMaker.make[List[ContentBlockWire]]
+    JsonCodec.make[List[ContentBlockWire]]
 
   private case class ExtensionUiRequestWire(
       id: String,
@@ -242,4 +233,4 @@ private[pi] object InboundEvent:
       message: Option[RawJson] = None,
       placeholder: Option[String] = None,
       prefill: Option[String] = None
-  ) derives ConfiguredJsonValueCodec
+  ) derives JsonCodec

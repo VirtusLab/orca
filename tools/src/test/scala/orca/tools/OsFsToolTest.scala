@@ -1,7 +1,7 @@
 package orca.tools
 
 import orca.{OrcaFlowException, WorkspaceWrite}
-import orca.testkit.TempDirs
+import orca.testkit.{Effects, TempDirs}
 import ox.discard
 
 class OsFsToolTest extends munit.FunSuite:
@@ -12,7 +12,7 @@ class OsFsToolTest extends munit.FunSuite:
 
   private def withFs(body: (OsFsTool, os.Path) => Unit): Unit =
     val tmp = TempDirs.dir()
-    body(new OsFsTool(base = tmp), tmp)
+    body(new OsFsTool(tmp, Effects.fs), tmp)
 
   test("write creates missing parent directories and read round-trips content"):
     withFs: (fs, tmp) =>

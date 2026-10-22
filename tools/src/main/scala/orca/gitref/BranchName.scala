@@ -52,7 +52,7 @@ object BranchName:
     raw.split("/", -1).toList
 
   // Ordered: the first broken rule names the refusal.
-  private val refFormatRules: List[(String => Boolean, String)] = List(
+  private val refFormatRules: List[(String -> Boolean, String)] = List(
     (_.isEmpty, "is empty"),
     (_ == "HEAD", "is the reserved name HEAD"),
     (_ == "@", "is the reserved name @"),

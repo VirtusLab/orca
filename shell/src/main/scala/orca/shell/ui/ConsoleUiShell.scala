@@ -100,7 +100,7 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
       }
       list.addPrompt().discard
       runOrCancelled(consolePrompt, builder.build()) match
-        case UiOutcome.Cancelled => UiOutcome.Cancelled
+        case UiOutcome.Cancelled         => UiOutcome.Cancelled
         case UiOutcome.Selected(results) =>
           val selectedId =
             results.get("select").asInstanceOf[ListResult].getSelectedId
@@ -126,7 +126,7 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
       .addPrompt()
       .discard
     runOrCancelled(consolePrompt, builder.build()) match
-      case UiOutcome.Cancelled => UiOutcome.Cancelled
+      case UiOutcome.Cancelled         => UiOutcome.Cancelled
       case UiOutcome.Selected(results) =>
         val confirmed =
           results.get("confirm").asInstanceOf[ConfirmResult].getConfirmed
@@ -144,7 +144,7 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
     */
   def input(prompt: String, default: Option[String] = None): UiOutcome[String] =
     default match
-      case None => plainLineInput(prompt)
+      case None       => plainLineInput(prompt)
       case Some(text) =>
         val consolePrompt = newConsolePrompt()
         val builder = consolePrompt.getPromptBuilder
@@ -153,7 +153,7 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
         inputBuilder.defaultValue(text).discard
         inputBuilder.addPrompt().discard
         runOrCancelled(consolePrompt, builder.build()) match
-          case UiOutcome.Cancelled => UiOutcome.Cancelled
+          case UiOutcome.Cancelled         => UiOutcome.Cancelled
           case UiOutcome.Selected(results) =>
             UiOutcome.Selected(
               results.get("input").asInstanceOf[InputResult].getResult

@@ -4,7 +4,7 @@ import orca.{AttemptId, RunKey, StagePath}
 import orca.agents.{BackendTag, SessionKey}
 import orca.events.OrcaEvent
 import orca.runlog.{AttemptOutcome, RunEventLog}
-import orca.testkit.{StageEvents, TempDirs}
+import orca.testkit.{Effects, StageEvents, TempDirs}
 import ox.channels.BufferCapacity
 import ox.supervised
 
@@ -24,6 +24,7 @@ class EventLogRoundTripTest extends munit.FunSuite:
     supervised:
       given BufferCapacity = BufferCapacity(8)
       val log = RunEventLog.start(
+        Effects.fs,
         workDir,
         RunKey.of("a prompt"),
         AttemptId(Instant.now(), pid = 1),

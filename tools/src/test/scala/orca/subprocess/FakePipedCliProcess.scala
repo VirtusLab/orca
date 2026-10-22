@@ -52,7 +52,7 @@ class FakePipedCliProcess(
   /** No OS process, so nothing to sweep for — and a cookie here would make
     * every fake-driven turn pay for a real `/proc` scan.
     */
-  def envCookie: Option[EnvCookie] = None
+  def survivors(): List[ProcessHandle] = Nil
 
   // The OS-backed process throws from the flush that follows every write, so
   // the fake rejects a late write too.

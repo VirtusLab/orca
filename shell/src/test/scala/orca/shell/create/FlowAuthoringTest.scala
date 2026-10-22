@@ -13,6 +13,13 @@ class FlowAuthoringTest extends munit.FunSuite:
 
   private val release = OrcaBuild.Release("0.0.18")
 
+  /** The build's Scala version, independent of the resource the shell reads. */
+  private val scalaPin: String =
+    "//> using scala " + sys.props.getOrElse(
+      "orca.build.scalaVersion",
+      sys.error("-Dorca.build.scalaVersion unset — see build.sbt")
+    )
+
   private def resourceText(name: String): String =
     val stream = getClass.getResourceAsStream(resourcePrefix + name)
     assert(stream != null, s"missing resource $name")
@@ -67,7 +74,7 @@ class FlowAuthoringTest extends munit.FunSuite:
     assert(text.contains("\n  | mode | effect |"), text)
 
   test("initialPrompt states the verbatim version-pinned header"):
-    assert(prompt.contains("//> using scala 3.9.0"))
+    assert(prompt.contains(scalaPin))
     assert(prompt.contains("""//> using dep "org.virtuslab::orca:0.0.18""""))
     assert(prompt.contains("//> using jvm 21"))
 
@@ -649,7 +656,7 @@ class FlowAuthoringTest extends munit.FunSuite:
     )
     result match
       case Left(message) => assert(message.contains("already exists"))
-      case Right(path) =>
+      case Right(path)   =>
         fail(s"expected a collision refusal, got Right($path)")
 
   // --- create/fork filename guard: no path separators (security review) ---
@@ -685,7 +692,7 @@ class FlowAuthoringTest extends munit.FunSuite:
 
   test("skeletonFlow states the same version pins as initialPrompt"):
     val skeleton = FlowAuthoring.skeletonFlow(release)
-    assert(skeleton.contains("//> using scala 3.9.0"))
+    assert(skeleton.contains(scalaPin))
     assert(skeleton.contains("""//> using dep "org.virtuslab::orca:0.0.18""""))
     assert(skeleton.contains("//> using jvm 21"))
 

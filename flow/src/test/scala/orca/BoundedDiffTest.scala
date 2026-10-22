@@ -260,7 +260,7 @@ class BoundedDiffTest extends munit.FunSuite:
   ): String =
     BoundedDiff.sectionsPayload(sections, paths, maxChars) match
       case BoundedDiff.SectionsCut.Rendered(payload) => payload
-      case BoundedDiff.SectionsCut.NothingFits =>
+      case BoundedDiff.SectionsCut.NothingFits       =>
         fail(s"expected sections for $paths")
 
   test("the sections payload carries the requested files and nothing else"):

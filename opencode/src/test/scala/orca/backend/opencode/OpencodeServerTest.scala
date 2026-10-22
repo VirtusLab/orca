@@ -12,9 +12,10 @@ import orca.subprocess.{
 }
 import orca.backend.SweepFixtures
 import orca.testkit.TempDirs
-import ox.{fork, supervised, timeout}
+import ox.{fork, releaseAfterScope, supervised, timeout}
 import ox.channels.ChannelClosedException
 
+import java.util.concurrent.atomic.AtomicBoolean
 import scala.concurrent.duration.*
 
 class OpencodeServerTest extends munit.FunSuite with SweepFixtures:
@@ -152,23 +153,25 @@ class OpencodeServerTest extends munit.FunSuite with SweepFixtures:
       assertEquals(server.http(), stubHttp)
     assertEquals(runner.spawnCalls.size, 2)
 
-  test("scope end destroys the process and closes the client"):
+  test("scope end destroys the process and releases the client"):
     // Stdout/stderr stay open after the bind line, so the drains are blocked
     // until the process is destroyed.
     val proc = new FakePipedCliProcess()
     proc.enqueueStdout("opencode server listening on http://127.0.0.1:4096")
-    val client = new TrackingHttp
+    val released = new AtomicBoolean(false)
     supervised:
       val server = OpencodeServer(
         new SpawnStubCliRunner(List(proc)),
         TempDirs.dir(),
         OrcaListener.noop,
-        httpFor = (_, _) => client
+        httpFor = (_, _) =>
+          releaseAfterScope(released.set(true))
+          stubHttp
       )
       val _ = server.http()
       assert(proc.isAlive)
     assert(!proc.isAlive, "scope end must destroy the serve process")
-    assert(client.closed, "scope end must close the http client")
+    assert(released.get, "scope end must release the http client")
 
   test("nothing is spawned when the server is never used"):
     val runner = new SpawnStubCliRunner(Nil)
@@ -235,12 +238,6 @@ class OpencodeServerTest extends munit.FunSuite with SweepFixtures:
           val _ = server.http()
           val _ = awaitPid(pidFile)
     finally killPid(pidFile)
-
-  private class TrackingHttp extends OpencodeHttp:
-    @volatile var closed: Boolean = false
-    def postJson(path: String, body: String): String = "ok"
-    def events(): StreamSource = throw new UnsupportedOperationException
-    override def close(): Unit = closed = true
 
   /** Runs `script` in place of `opencode serve`. */
   private class ScriptRunner(script: String) extends CliRunner:

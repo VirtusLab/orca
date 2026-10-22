@@ -1,8 +1,9 @@
 package orca.events
 
-import org.slf4j.LoggerFactory
+import orca.safe.Logger
+import orca.concurrency.Ref
 
-import scala.util.control.NonFatal
+import orca.safe.prelude.NonFatal
 
 /** Synchronously forwards every `OrcaEvent` to a fixed list of listeners in
   * registration order. Implements `OrcaListener` itself, so it can be passed
@@ -18,22 +19,22 @@ import scala.util.control.NonFatal
   * thread-safe (see [[OrcaListener]]).
   */
 class EventDispatcher(listeners: List[OrcaListener]) extends OrcaListener:
-  private val log = LoggerFactory.getLogger(classOf[EventDispatcher])
+  private val log = Logger(classOf[EventDispatcher].getName)
 
-  // Listeners that threw, disabled for the rest of the run. Cross-thread
-  // (emitters include reviewer forks), hence a concurrent set.
-  private val quarantined =
-    java.util.concurrent.ConcurrentHashMap.newKeySet[OrcaListener]()
+  // Listeners that threw, disabled for the rest of the run. Emitters include
+  // reviewer forks, so it is shared across threads; an actor would serialise
+  // every event through one thread to guard a set that rarely changes.
+  private val quarantined: Ref[Set[OrcaListener]] = Ref(Set.empty)
 
   def onEvent(event: OrcaEvent): Unit =
     listeners.foreach: l =>
-      if !quarantined.contains(l) then
+      if !quarantined.get.contains(l) then
         try l.onEvent(event)
         catch
           case NonFatal(e) =>
-            // `add` returns false if another thread already quarantined `l`;
-            // gating on it makes the announcement fire exactly once.
-            if quarantined.add(l) then
+            // False when another thread already quarantined `l`; gating on it
+            // makes the announcement fire exactly once.
+            if quarantined.modify(q => (q + l, !q.contains(l))) then
               log.error(
                 s"listener ${l.getClass.getName} failed on ${event.getClass.getSimpleName}" +
                   " — listener disabled for the rest of the run",
@@ -49,7 +50,7 @@ class EventDispatcher(listeners: List[OrcaListener]) extends OrcaListener:
               val payload = event match
                 case OrcaEvent.Error(message, _) => s" (event error: $message)"
                 case _                           => ""
-              System.err.println(
+              Logger.stderr(
                 s"[orca] listener ${l.getClass.getName} failed on " +
                   s"${event.getClass.getSimpleName}: ${e.getMessage}$payload (listener disabled)"
               )

@@ -1,7 +1,7 @@
 package orca.runner
 
 import orca.{FlowContext, StackSettings}
-import orca.review.ReviewerCatalog
+import orca.review.{GateShell, ReviewerCatalog}
 import orca.tools.{FsTool, GitHubTool, RuntimeGit}
 import orca.agents.Agent
 import orca.events.{OrcaEvent, OrcaListener}
@@ -32,7 +32,8 @@ private[orca] class DefaultFlowContext(
       * tiers): resolved by `runFlow` before the context exists, so it arrives
       * frozen like `stackSettings`.
       */
-    val reviewerCatalog: ReviewerCatalog
+    val reviewerCatalog: ReviewerCatalog,
+    private[orca] val gateShell: GateShell
 ) extends FlowContext:
 
   export wired.{claude, codex, opencode, pi, gemini}

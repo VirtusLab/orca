@@ -1,5 +1,5 @@
 // Plan a large change as epics, then plan, build and review each epic in turn.
-//> using scala 3.9.0
+//> using scala 3.10.0
 //> using dep "org.virtuslab::orca:0.2.1"
 //> using jvm 21
 

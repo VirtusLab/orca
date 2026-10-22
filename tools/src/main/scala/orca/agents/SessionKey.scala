@@ -1,8 +1,8 @@
 package orca.agents
 
 import com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec
-import com.github.plokhotnyuk.jsoniter_scala.macros.JsonCodecMaker
 import orca.StagePath
+import orca.json.JsonCodec
 
 /** What identifies a durable session: the `name` it was minted under (its role,
   * e.g. `implementer`) and the stage that minted it. Two stages can therefore
@@ -35,4 +35,4 @@ object SessionKey:
     * form, for the run's event log.
     */
   private[orca] given codec: JsonValueCodec[SessionKey] =
-    JsonCodecMaker.make[SessionKey]
+    JsonCodec.make[SessionKey]

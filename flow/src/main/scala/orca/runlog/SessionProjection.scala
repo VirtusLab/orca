@@ -20,7 +20,7 @@ private[runlog] object SessionProjection:
       event: RunEvent
   ): List[SessionRecord] =
     event match
-      case _: RunEvent.RunSucceeded => Nil
+      case _: RunEvent.RunSucceeded  => Nil
       case m: RunEvent.SessionMinted =>
         val record = SessionRecord(
           name = m.name,

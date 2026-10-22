@@ -1,5 +1,5 @@
 // Resolve a request or GitHub issue: triage, reproduce a bug, fix or build it, PR.
-//> using scala 3.9.0
+//> using scala 3.10.0
 //> using dep "org.virtuslab::orca:0.2.1"
 //> using jvm 21
 

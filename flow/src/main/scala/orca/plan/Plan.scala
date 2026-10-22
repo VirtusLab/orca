@@ -213,7 +213,7 @@ object Plan:
     def reviewed(
         critiqueInstructions: String = PlanPrompts.Critique,
         reviseInstructions: String = PlanPrompts.Revise,
-        variant: Agent[?] => Agent[?] = identity
+        variant: Agent[?] => Agent[?] = a => a
     )(using FlowContext, InStage): WithChat[Plan] =
       critiqueThenRevise(
         planned,

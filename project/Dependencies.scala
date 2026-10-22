@@ -2,7 +2,7 @@ import sbt.*
 
 object Dependencies {
   object V {
-    val scala = "3.9.0"
+    val scala = "3.10.0"
     val osLib = "0.11.8"
     val jsoniter = "2.38.17"
     // Tapir and sttp-apispec follow what V.chimp's chimp-server declares, so
@@ -18,6 +18,7 @@ object Dependencies {
     val jsonSchemaValidator = "1.5.4"
     val chimp = "0.5.2"
     val logback = "1.5.18"
+    val slf4j = "2.0.17"
   }
 
   val osLib = "com.lihaoyi" %% "os-lib" % V.osLib
@@ -52,8 +53,8 @@ object Dependencies {
   val munitScalacheck =
     "org.scalameta" %% "munit-scalacheck" % V.munitScalacheck % Test
 
-  // The Scala 3 compiler as a library, so the CC-enforcement negative-compile
-  // suite (orca.CcNegativeCompileTest) can invoke the compiler's entry point
+  // The Scala 3 compiler as a library, so the negative-compile suites
+  // (orca.testkit.Dotc) can invoke the compiler's entry point
   // (`dotty.tools.dotc.Main` — the class the `scalac`/`scala` launchers
   // themselves run) in-process on fixture sources. Pinned to V.scala so the
   // checked-compilation phases match the build's own compiler. Test-only.
@@ -69,6 +70,10 @@ object Dependencies {
   val chimp = "com.softwaremill.chimp" %% "chimp-server" % V.chimp
   val tapirNettySync =
     "com.softwaremill.sttp.tapir" %% "tapir-netty-server-sync" % V.tapir
+
+  // The logging API alone, for modules that log but leave the binding to the
+  // application.
+  val slf4j = "org.slf4j" % "slf4j-api" % V.slf4j
 
   // SLF4J binding so chimp/tapir/netty stop printing the "No SLF4J providers
   // found" warning; a logback.xml on the classpath pins the noisy loggers to

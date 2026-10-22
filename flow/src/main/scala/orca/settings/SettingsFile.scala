@@ -92,7 +92,7 @@ private[orca] object SettingsFile:
       scope: SettingsScope
   ): Either[SettingsError, ParsedSettings] =
     Line.of(line) match
-      case Line.Inert => Right(acc)
+      case Line.Inert           => Right(acc)
       case Line.Malformed(text) =>
         Left(SettingsError.NoAssignment(number, text))
       case Line.Assignment(rawKey, value) =>
@@ -115,8 +115,8 @@ private[orca] object SettingsFile:
     StackValue.parse(value) match
       case StackValue.Run(command) =>
         Right(acc.copy(stack = Some(key.appendTo(stackSoFar, command))))
-      case StackValue.Off   => Right(acc.copy(stack = Some(stackSoFar)))
-      case StackValue.Empty => Right(acc)
+      case StackValue.Off          => Right(acc.copy(stack = Some(stackSoFar)))
+      case StackValue.Empty        => Right(acc)
       case StackValue.CommentedOut =>
         Left(SettingsError.CommentedValue(number, key.raw))
 
@@ -260,14 +260,14 @@ private[orca] object SettingsFile:
       index: Int
   ): Set[Int] =
     def bare(line: String): String = line.stripLineEnd
-    val evidence = scala.collection.mutable.Set.empty[Int]
+    var evidence = Set.empty[Int]
     var j = index - 1
     while j >= 0 && bare(lines(j)).trim.startsWith("#") &&
       !headerLines(bare(lines(j)))
     do
       evidence += j
       j -= 1
-    evidence.toSet
+    evidence
 
   /** `content` with every LIVE `format`/`lint`/`test` line removed, plus each
     * one's evidence comment block (see [[evidenceAbove]]) and every

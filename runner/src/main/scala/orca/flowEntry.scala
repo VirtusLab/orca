@@ -1,6 +1,7 @@
 package orca
 
 import orca.backend.{AgentWiring, Interaction}
+import orca.effect.{FileSystem, Processes}
 import orca.events.{
   CostResolvingDispatcher,
   CostTracker,
@@ -22,28 +23,26 @@ import orca.agents.{
   Prompts
 }
 import orca.progress.ProgressStore
-import orca.review.ReviewerCatalog
+import orca.review.{OsGateShell, ReviewerCatalog}
 import orca.runner.{
   DefaultFlowContext,
   DefaultFlowControl,
-  FlowLifecycle,
+  DirtyTreePrompt,
   FlowLock,
   FlowWiring,
   LoggingListener,
   OrcaBanner,
   OrcaLog,
-  RoleAgents,
-  RoleOverrides,
   RunGitHubTool,
   RunLogStarter,
   RunRequest,
   SetupOptions,
-  WiredAgents,
-  WorktreeRun
+  WiredAgents
 }
+import orca.lifecycle.{FlowLifecycle, RoleAgents, RoleOverrides, WorktreeRun}
 import orca.runlog.{AttemptOutcome, RunEventLog}
-import orca.runner.terminal.TerminalInteraction
-import orca.subprocess.OsProcCliRunner
+import orca.runner.terminal.{TerminalInteraction, TtyProbe}
+import orca.subprocess.{OsProcCliRunner, PathProbe}
 import org.slf4j.LoggerFactory
 import orca.tools.FsTool
 import orca.tools.RuntimeGit
@@ -157,6 +156,8 @@ def flow(
   // progress header via `runFlow`/`FlowLifecycle.setup`).
   val flowSource = FlowSourceProperty.read()
   val runKey = RunKey.of(args.userPrompt)
+  val worktreeRun =
+    WorktreeRun(Processes.ambient, FileSystem.ambient, FlowLock)
 
   // Where the run happens. This settles before the directory's first consumer,
   // the attempt's trace below; everything downstream is handed `workDir`
@@ -168,7 +169,7 @@ def flow(
       // same prompt, a symlinked or unwritable `.orca`, a git that won't start.
       // One `Left` shape for every outcome keeps the reporting below the only
       // way out.
-      try WorktreeRun.resolve(workDir, runKey)
+      try worktreeRun.resolve(workDir, runKey)
       catch case NonFatal(e) => Left(TextUtil.throwableMessage(e))
 
   // The attempt's trace file, capturing every stage, prompt and
@@ -228,6 +229,7 @@ def flow(
           pricing = pricing,
           startRunLog = new RunLogStarter:
             def start(using Ox): RunEventLog = RunEventLog.start(
+              FileSystem.ambient,
               dir,
               runKey,
               attemptId,
@@ -241,7 +243,7 @@ def flow(
             branchNaming = branchNaming,
             stackSettings = stackSettings,
             roles = RoleOverrides(planningAgent, codingAgent, reviewAgent),
-            configHome = ConfigHome.default,
+            configHome = ConfigHome.resolve(sys.env.get, os.home),
             flowSource = flowSource
           )
         )
@@ -302,7 +304,7 @@ private[orca] def runFlow(request: RunRequest)(
       try runLogged(request, runLog)(body)
       catch
         // An interrupt means the scope is shutting down and has interrupted the
-        // log's actors too; an ask to them would never be answered.
+        // log's actor and writer too; an ask would never be answered.
         case e: InterruptedException => throw e
         // Fatal errors too, so the queued events are flushed and the attempt
         // is recorded as failed, not crashed.
@@ -350,11 +352,22 @@ private def runLogged(request: RunRequest, runLog: RunEventLog)(
     )
     val agents = WiredAgents.build(wiring, agentWiring)
     val runtimeGit =
-      wiring.git.getOrElse(new OsGitTool(workDir, dispatcher))
+      wiring.git.getOrElse(
+        new OsGitTool(
+          workDir,
+          Processes.ambient,
+          FileSystem.ambient,
+          dispatcher
+        )
+      )
     val ghTool = wiring.gh.getOrElse(
-      new OsGitHubTool(OsProcCliRunner, workDir, events = dispatcher)
+      new OsGitHubTool(
+        OsProcCliRunner(Processes.ambient),
+        workDir,
+        events = dispatcher
+      )
     )
-    val fsTool = wiring.fs.getOrElse(new OsFsTool(workDir))
+    val fsTool = wiring.fs.getOrElse(new OsFsTool(workDir, FileSystem.ambient))
     runInContext(
       args = request.args,
       workDir = workDir,
@@ -392,7 +405,7 @@ private def runInContext(
 )(body: (FlowContext, FlowControl) ?=> Unit): Unit =
   val debug = OrcaDebug.enabled || args.verbose
   val runKey = RunKey.of(args.userPrompt)
-  val store = ProgressStore.default(workDir, runKey)
+  val store = ProgressStore.default(FileSystem.ambient, workDir, runKey)
   // This method takes no `Ox`, as `resourceScope` can't start where one is
   // visible.
   resourceScope:
@@ -407,6 +420,7 @@ private def runInContext(
     val (resolvedRoles, settingsRead) = surfaced:
       val read =
         FlowLifecycle.readSettings(
+          FileSystem.ambient,
           workDir,
           options.configHome.settings,
           options.stackSettings
@@ -428,9 +442,11 @@ private def runInContext(
       val projectReviewersPath = OrcaDir.reviewersPath(workDir)
       // `ReviewerCatalog.discover` reads through `os.isDir`, which follows
       // links, so the tier directory is guarded here.
-      OrcaDir.assertNoOrcaSymlinks(workDir, projectReviewersPath)
+      OrcaDir(FileSystem.ambient)
+        .assertNoOrcaSymlinks(workDir, projectReviewersPath)
       val catalog =
         ReviewerCatalog.discover(
+          FileSystem.ambient,
           projectReviewersPath,
           options.configHome.reviewers
         )
@@ -440,7 +456,7 @@ private def runInContext(
     // its outcome is a constructor input; it drives the CODING role.
     val flowSetup = surfaced(
       FlowLifecycle.setup(
-        args,
+        args.setupRequest,
         resolvedRoles.coding,
         runtimeGit,
         workDir,
@@ -449,7 +465,19 @@ private def runInContext(
         store,
         runLog,
         flowSource = options.flowSource,
-        emit = dispatcher.onEvent
+        emit = dispatcher.onEvent,
+        // From where the run IS, not from the flag: the shell relaunches a
+        // resume inside the worktree its log was found in WITHOUT `--worktree`
+        // (the flag would re-derive a path), and that run has to name the tree
+        // too.
+        worktree = Option.when(
+          WorktreeRun(Processes.ambient, FileSystem.ambient, FlowLock)
+            .isWorktreeRun(workDir)
+        )(workDir),
+        fs = FileSystem.ambient,
+        onPath = PathProbe.resolves(Processes.ambient, _, _),
+        tty = () => TtyProbe.stdin() && TtyProbe.stderr(),
+        ask = DirtyTreePrompt.promptOnStderr
       )
     )
     val ctx = new DefaultFlowContext(
@@ -464,7 +492,8 @@ private def runInContext(
       gh = RunGitHubTool(ghTool, flowSetup.prReadiness),
       fs = fsTool,
       stackSettings = flowSetup.stackSettings,
-      reviewerCatalog = reviewerCatalog
+      reviewerCatalog = reviewerCatalog,
+      gateShell = OsGateShell(Processes.ambient, FileSystem.ambient)
     )
     val control = new DefaultFlowControl(
       progressStore = store,

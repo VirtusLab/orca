@@ -1,6 +1,7 @@
 package orca.shell.actions
 
 import orca.OrcaDir
+import orca.effect.FileSystem
 import orca.shell.{OrcaBuild, ShellEnv}
 import orca.discovery.Origin
 import orca.progress.FlowSource
@@ -31,7 +32,8 @@ private[shell] object FlowResolution:
   def list(using env: ShellEnv): Either[String, List[DiscoveredFlow]] =
     val projectFlows = OrcaDir.flowsPath(env.workDir)
     try
-      OrcaDir.assertNoOrcaSymlinks(env.workDir, projectFlows)
+      OrcaDir(FileSystem.ambient)
+        .assertNoOrcaSymlinks(env.workDir, projectFlows)
       Right(
         FlowCatalog.list(
           projectFlows,
@@ -59,7 +61,7 @@ private[shell] object FlowResolution:
     )
     pathHit match
       case Some(path) => Right(fromPath(path))
-      case None =>
+      case None       =>
         if ref.contains("/") then Left(s"no such flow file: $ref")
         else byName(ref)
 
@@ -81,7 +83,7 @@ private[shell] object FlowResolution:
   ): Either[String, DiscoveredFlow] =
     source match
       case FlowSource.Catalog(name) => byName(name)
-      case FlowSource.File(path) =>
+      case FlowSource.File(path)    =>
         recordedFile(path).filter(os.isFile) match
           case Some(file) => Right(fromPath(file))
           case None       => Left(s"no flow file at $path")
@@ -108,7 +110,7 @@ private[shell] object FlowResolution:
       flows: List[DiscoveredFlow]
   ): String =
     nearMatches(ref, flows) match
-      case Nil => s"no flow named '$ref' found in the catalog"
+      case Nil     => s"no flow named '$ref' found in the catalog"
       case matches =>
         s"no flow named '$ref'; did you mean: ${matches.mkString(", ")}?"
 

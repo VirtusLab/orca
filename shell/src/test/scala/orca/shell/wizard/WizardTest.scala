@@ -511,13 +511,14 @@ class WizardTest extends munit.FunSuite:
           |""".stripMargin
       )
       val ui = ScriptedUi(
-        selectScript = List(
-          UiOutcome.Selected(BackendTag.ClaudeCode),
-          UiOutcome.Selected(ModelCatalog.ModelPick.Default),
-          UiOutcome.Selected(BackendTag.ClaudeCode),
-          UiOutcome.Selected(ModelCatalog.ModelPick.Curated("sonnet")),
-          UiOutcome.Selected(BackendTag.Gemini)
-        ),
+        selectScript =
+          List(
+            UiOutcome.Selected(BackendTag.ClaudeCode),
+            UiOutcome.Selected(ModelCatalog.ModelPick.Default),
+            UiOutcome.Selected(BackendTag.ClaudeCode),
+            UiOutcome.Selected(ModelCatalog.ModelPick.Curated("sonnet")),
+            UiOutcome.Selected(BackendTag.Gemini)
+          ),
         inputScript = List(UiOutcome.Selected(""))
       )
       assert(Wizard(ui, probe, path).run(reconfigure = true))
