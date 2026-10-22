@@ -1,5 +1,7 @@
 package orca.shell.menu
 
+import orca.tools.PrReadiness
+
 import orca.{OrcaDir, RunKey, WorkspaceWrite}
 import orca.gitref.CommitHash
 import orca.progress.{BranchMode, FlowSource, ProgressHeader, ProgressStore}
@@ -21,7 +23,8 @@ class ResumeDetectorTest extends munit.FunSuite:
       branchMode = BranchMode.Created,
       userPrompt = userPrompt,
       flow = flow,
-      startingCommit = CommitHash.from("0" * 40).get
+      startingCommit = CommitHash.from("0" * 40).get,
+      prReadiness = PrReadiness.Ready
     )
 
   // The scan's own guards (symlinked log file, symlinked or missing `.orca`)

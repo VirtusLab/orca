@@ -62,7 +62,7 @@ and `issue` an `IssueHandle`.
 |---|---|
 | `availability()` | probes whether a PR can be opened from this checkout |
 | `prHandle(ref)` | a `PrHandle` from a PR URL or `owner/repo#N`; `Either[String, PrHandle]` |
-| `createPr(title, body)` | opens a PR; `Either[PrCreateFailed, PrHandle]` |
+| `createPr(title, body, readiness?)` | opens a PR, as a draft with `Some(PrReadiness.Draft)` or, when omitted, under `--draft`; `Either[PrCreateFailed, PrHandle]` |
 | `updatePr(pr, title, body)` | replaces a PR's title and body |
 | `readIssue(issue)`, `readIssueComments(issue)`, `readPrComments(pr)` | read an issue, its comments, or a PR's comments |
 | `writeComment(pr, body)`, `writeComment(issue, body)` | posts a comment |
@@ -74,10 +74,11 @@ and `issue` an `IssueHandle`.
 returns `Either[BuildWaitFailed, BuildStatus]`.
 
 `createPr` is idempotent by branch: if a PR is already open for the branch, it
-returns that one. `upsertComment` finds a prior comment carrying `marker` and
-edits it in place, posting a new one only when there is none. `updatePr` is
-harmless to re-run. This idempotency is what makes a resumed stage safe, see
-[Pull requests](../authoring/pull-requests.md).
+returns that one as it is: `readiness` applies only to a PR this call opens, and
+never changes the state of an existing one. `upsertComment` finds a prior
+comment carrying `marker` and edits it in place, posting a new one only when
+there is none. `updatePr` is harmless to re-run. This idempotency is what makes
+a resumed stage safe, see [Pull requests](../authoring/pull-requests.md).
 
 ## `fs`
 

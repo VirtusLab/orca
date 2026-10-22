@@ -17,7 +17,8 @@ Note that `interactive` exists only on `resultAs[O]`. [`FlowSession` and
 All five backends also share the builders `withModel`, `withCheapModel`,
 `withAutoApprove`, `withSystemPrompt`, `withName`, `withReadOnly`,
 `withNetworkOnly` and `withSelfManagedGit`; see
-[Choosing agents](../authoring/choosing-agents.md) for what each one does.
+[Choosing agents](../authoring/choosing-agents.md) for what each one does. All
+but `gemini` also have `withEffort`.
 `Model` wraps a model id string.
 
 The sections below describe what differs between the backends: which model
@@ -66,6 +67,9 @@ selection follow Pi's own configuration; to pick one, use
 `withModel(Model("provider/model"))`. Interactive calls can ask clarifying
 questions through Orca's `ask_user` bridge.
 
+`withEffort` replaces a thinking level given in the model (Pi's `sonnet:high`
+form). Pi lowers a level the model does not support to the nearest one it does.
+
 ## `gemini`
 
 Google Gemini CLI, driven via `gemini --output-format stream-json`. Bare
@@ -81,6 +85,5 @@ Structured output is prompt-enforced, since Gemini has no schema flag.
 How strongly each backend enforces a `ToolSet` is tabulated in
 [Choosing agents](../authoring/choosing-agents.md#how-strongly-each-harness-enforces-a-limit).
 
-In `settings.properties` a backend is named by the same word, with an optional
-model after a colon, for example `codingAgent = codex:gpt-5-mini`. See
-[Settings](../using/settings.md).
+In `settings.properties` a backend is named by the same word; see
+[Settings](../using/settings.md#agent-keys) for the value form.

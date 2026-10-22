@@ -5,6 +5,7 @@ import orca.agents.{
   AutoApprove,
   BackendTag,
   AgentConfig,
+  Effort,
   Model,
   NetworkTools,
   WireSessionId,
@@ -54,6 +55,13 @@ class ClaudeArgsTest extends munit.FunSuite:
     // Guards against generalising the rewrite to aliases the CLI resolves fine.
     val args = streamJson(AgentConfig(model = Some(Model("sonnet"))))
     assert(args.containsSlice(Seq("--model", "sonnet")), args)
+
+  test("effort flag carries the level name"):
+    val args = streamJson(AgentConfig(effort = Some(Effort.XHigh)))
+    assert(args.containsSlice(Seq("--effort", "xhigh")), args)
+
+  test("effort flag is absent when AgentConfig.effort is None"):
+    assert(!streamJson(AgentConfig()).contains("--effort"))
 
   test("system-prompt-file flag is emitted when a file is supplied"):
     val file = os.temp(contents = "content")

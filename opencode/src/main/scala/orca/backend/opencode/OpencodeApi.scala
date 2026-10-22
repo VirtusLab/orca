@@ -39,7 +39,8 @@ private[opencode] object OpencodeApi:
       system: Option[String],
       agent: Option[String],
       tools: Option[Map[String, Boolean]],
-      format: Option[OutputFormat]
+      format: Option[OutputFormat],
+      variant: Option[String]
   ) derives JsonCodec
 
   /** Body of `POST /session`. */

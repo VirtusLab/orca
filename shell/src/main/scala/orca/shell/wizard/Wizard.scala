@@ -41,7 +41,7 @@ private[shell] class Wizard(
       else AgentSettings.empty
 
     val detected = BackendTag.values
-      .filter(tag => probe(AgentSpec.harnessNameFor(tag)))
+      .filter(tag => probe(tag.harnessName))
       .toSet
     val fallback =
       BackendTag.values.find(detected.contains).getOrElse(BackendTag.ClaudeCode)
@@ -120,10 +120,30 @@ private[shell] class Wizard(
         choices,
         default = Some(currentTag.getOrElse(fallback))
       )
-      currentModel =
-        if currentTag.contains(tag) then current.flatMap(_.model) else None
-      model <- selectModel(role, tag, currentModel)
-    yield AgentSpec(tag, model)
+      spec <- selectSpec(role, tag, current)
+    yield spec
+
+  /** Asks for `tag`'s model. A typed model ending in `@<level>` sets the
+    * effort; otherwise `current`'s effort is kept if the harness is unchanged.
+    * Asks again when the result is not a valid settings value.
+    */
+  private def selectSpec(
+      role: Wizard.Role,
+      tag: BackendTag,
+      current: Option[AgentSpec]
+  ): UiOutcome[AgentSpec] =
+    val currentModel = current.filter(_.backend == tag).flatMap(_.model)
+    selectModel(role, tag, currentModel).flatMap: model =>
+      // parse splits a typed `@<level>` off the model
+      AgentSpec.parse(AgentSpec(tag, model).render) match
+        case Right(typed) if typed.effort.isDefined => UiOutcome.Selected(typed)
+        case Right(typed)                           =>
+          UiOutcome.Selected(
+            current.fold(typed)(_.repinned(tag, typed.model))
+          )
+        case Left(problem) =>
+          ShellOutput.error(problem)
+          selectSpec(role, tag, current)
 
   /** The per-harness model step ([[ModelCatalog.pick]]). `currentModel` is the
     * role's existing pin, already dropped by the caller if the harness changed.
@@ -146,7 +166,7 @@ private[shell] class Wizard(
       current: Option[BackendTag],
       detected: Set[BackendTag]
   ): Choice[BackendTag] =
-    val name = AgentSpec.harnessNameFor(tag)
+    val name = tag.harnessName
     val marked = if current.contains(tag) then s"$name (current)" else name
     Choice(tag, s"$marked — ${Wizard.pathStatus(detected(tag))}")
 

@@ -88,7 +88,8 @@ A few things are worth knowing:
 
 A re-run with the same prompt finds the progress log and resumes from the first
 incomplete stage. If `--branch` names a different branch than the one in the
-log, the run is refused. On resume, Orca prints which branch the run is bound
+log, the run is refused. A resume keeps the first attempt's `--draft`, whatever
+this attempt passes. On resume, Orca prints which branch the run is bound
 to, how many stages are already done, and that the interrupted stage's
 uncommitted work was dropped. Each
 [durable session](../authoring/talking-to-agents.md) that is resumed gets the

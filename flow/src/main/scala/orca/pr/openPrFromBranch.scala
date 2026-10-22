@@ -3,7 +3,7 @@ package orca.pr
 import orca.{FlowContext, FlowControl, OutsideStage, fail, gh, git, tracedStage}
 import orca.agents.Agent
 import orca.review.OpenFindings
-import orca.tools.PrHandle
+import orca.tools.{PrHandle, PrReadiness}
 
 import orca.safe.prelude.orThrow
 
@@ -37,10 +37,13 @@ import orca.safe.prelude.orThrow
   * findings it left unfixed. The same section is printed to the run output,
   * also when opening the PR fails.
   *
+  * `readiness` says whether the PR opens as a draft; when omitted, the run's
+  * `--draft` decides.
+  *
   * `gh.createPr` is idempotent by head branch: a re-run that already opened the
-  * PR gets the existing handle back rather than failing. Returns that handle,
-  * recorded as the run's published work through [[recordOpenedPr]] inside the
-  * create stage.
+  * PR gets the existing handle back, its draft state untouched, rather than
+  * failing. Returns that handle, recorded as the run's published work through
+  * [[recordOpenedPr]] inside the create stage.
   *
   * Refused inside a stage — at compile time where the call sits in a stage
   * body, at run time where it is reached through a helper: opening the PR is a
@@ -52,7 +55,8 @@ def openPrFromBranch(
     title: PrSummary => String = _.title,
     body: PrSummary => String = _.body,
     context: Option[String] = None,
-    instructions: String = PrPrompts.Summarise
+    instructions: String = PrPrompts.Summarise,
+    readiness: Option[PrReadiness] = None
 )(using FlowContext, FlowControl, OutsideStage): PrHandle =
   summon[FlowControl].assertAtFlowBody("openPrFromBranch(...)")
   reportOpenFindings(openFindings)
@@ -72,7 +76,8 @@ def openPrFromBranch(
     val pr = gh
       .createPr(
         title = title(summary),
-        body = bodyWithOpenFindings(body(summary), openFindings)
+        body = bodyWithOpenFindings(body(summary), openFindings),
+        readiness = readiness
       )
       .orThrow
     recordOpened(pr)

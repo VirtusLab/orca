@@ -103,6 +103,16 @@ class OrcaArgsTest extends munit.FunSuite:
       case Left(msg) => assert(msg.nonEmpty)
       case Right(r)  => fail(s"expected parse failure, got $r")
 
+  test("--draft makes the run's PR a draft; absent, a ready one"):
+    assertEquals(
+      OrcaArgs.parse(Seq("--draft", "x")).map(_.prReadiness),
+      Right(PrReadiness.Draft)
+    )
+    assertEquals(
+      OrcaArgs.parse(Seq("x")).map(_.prReadiness),
+      Right(PrReadiness.Ready)
+    )
+
   test("--prompt carries a prompt that starts with '-'"):
     assertEquals(
       OrcaArgs.parse(Seq("--prompt", "- add X")).map(_.userPrompt),

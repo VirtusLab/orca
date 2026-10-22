@@ -1,6 +1,6 @@
 package orca.shell.wizard
 
-import orca.agents.BackendTag
+import orca.agents.{BackendTag, Effort}
 import orca.settings.{AgentSettings, AgentSpec, SettingsFile, SettingsScope}
 import orca.shell.ui.{Choice, ShellUi, UiOutcome}
 
@@ -186,6 +186,22 @@ class WizardTest extends munit.FunSuite:
         Some(AgentSpec(BackendTag.Opencode, Some("anthropic/claude-sonnet-5")))
       )
 
+  test("a free-text model with a level the harness rejects is asked again"):
+    withTempPath: path =>
+      val ui = ScriptedUi(
+        selectScript = List.fill(3)(UiOutcome.Selected(BackendTag.Pi)),
+        inputScript = List(
+          UiOutcome.Selected("sonnet@max"), // pi has no max
+          UiOutcome.Selected("sonnet@high"),
+          UiOutcome.Selected(""),
+          UiOutcome.Selected("")
+        )
+      )
+      assert(Wizard(ui, probe, path).run(reconfigure = false))
+
+      val agents = parse(os.read(path))
+      assertEquals(agents.planning, AgentSpec.parse("pi:sonnet@high").toOption)
+
   test(
     "first run starts planning on fable, the role's own default model"
   ):
@@ -325,6 +341,40 @@ class WizardTest extends munit.FunSuite:
 
       val agents = parse(os.read(path))
       assertEquals(agents.coding, Some(AgentSpec(BackendTag.Gemini, None)))
+
+  test("re-configure keeps a hand-written effort on the same harness"):
+    withTempPath: path =>
+      os.write(path, "codingAgent = claude:sonnet@high\n")
+      val ui = ScriptedUi(
+        selectScript = List(
+          UiOutcome.Selected(BackendTag.ClaudeCode),
+          UiOutcome.Selected(ModelCatalog.ModelPick.Default),
+          UiOutcome.Selected(BackendTag.ClaudeCode),
+          UiOutcome.Selected(ModelCatalog.ModelPick.Default),
+          UiOutcome.Selected(BackendTag.ClaudeCode),
+          UiOutcome.Selected(ModelCatalog.ModelPick.Default)
+        )
+      )
+      assert(Wizard(ui, probe, path).run(reconfigure = true))
+
+      val agents = parse(os.read(path))
+      assertEquals(agents.coding.flatMap(_.effort), Some(Effort.High))
+
+  test("re-configure with a typed effort replaces the existing one"):
+    withTempPath: path =>
+      os.write(path, "planningAgent = pi:sonnet@high\n")
+      val ui = ScriptedUi(
+        selectScript = List.fill(3)(UiOutcome.Selected(BackendTag.Pi)),
+        inputScript = List(
+          UiOutcome.Selected("sonnet@low"),
+          UiOutcome.Selected(""),
+          UiOutcome.Selected("")
+        )
+      )
+      assert(Wizard(ui, probe, path).run(reconfigure = true))
+
+      val agents = parse(os.read(path))
+      assertEquals(agents.planning, AgentSpec.parse("pi:sonnet@low").toOption)
 
   test("re-configure onto harness default clears an existing pin"):
     withTempPath: path =>

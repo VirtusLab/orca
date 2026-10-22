@@ -1,6 +1,6 @@
 // Review a PR, a branch, or local changes — a list of findings, no fixes.
 //> using scala 3.10.0
-//> using dep "org.virtuslab::orca:0.2.0"
+//> using dep "org.virtuslab::orca:0.2.1"
 //> using jvm 21
 
 /** Prints review findings and changes nothing. For a PR target, also posts

@@ -78,7 +78,7 @@ private[shell] object FlowAuthoring:
     * pinned model only costs the local fallback.
     */
   def slugArgv(agent: AgentSpec, prompt: String): Seq[String] =
-    val binary = AgentSpec.harnessNameFor(agent.backend)
+    val binary = agent.backend.harnessName
     val pin = agent.model.toSeq.flatMap(m => Seq("--model", m))
     agent.backend match
       case BackendTag.ClaudeCode =>

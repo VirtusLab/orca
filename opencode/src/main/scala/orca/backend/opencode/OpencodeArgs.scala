@@ -4,6 +4,7 @@ import orca.backend.{TurnMode, SystemPromptComposer}
 import orca.agents.{
   AgentConfig,
   AutoApprove,
+  EffortSupport,
   Enforcement,
   EnforcementCell,
   Model,
@@ -67,7 +68,8 @@ private[opencode] object OpencodeArgs:
       // server's default applies.
       agent = None,
       tools = toolFlags(config, mode),
-      format = outputSchema.map(s => OutputFormat("json_schema", RawJson(s)))
+      format = outputSchema.map(s => OutputFormat("json_schema", RawJson(s))),
+      variant = config.effort.map(EffortSupport.opencode.wire)
     )
 
   private def toModelRef(model: Model): ModelRef =

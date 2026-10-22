@@ -1,8 +1,9 @@
 package orca.shell.actions
 
 import orca.OrcaDir
+import orca.agents.BackendTag
 import orca.effect.FileSystem
-import orca.settings.{AgentSettings, SettingsFile}
+import orca.settings.{AgentSettings, AgentSpec, SettingsFile}
 import orca.shell.{ShellEnv, Tier}
 import ox.discard
 
@@ -28,7 +29,7 @@ private[shell] object SettingsEditAction:
       "# lint = cargo check --tests\n" +
       "# test = cargo test\n" +
       "\n" +
-      "# Role agents — harness[:model]; harness: claude|codex|opencode|pi|gemini.\n" +
+      s"# Role agents — ${AgentSpec.ValueForm}; harness: ${BackendTag.values.map(_.harnessName).mkString("|")}.\n" +
       "# planningAgent = claude:fable\n" +
       "# codingAgent = claude:opus\n" +
       "# reviewAgent = claude:opus\n"

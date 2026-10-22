@@ -1,5 +1,7 @@
 package orca.progress
 
+import orca.tools.PrReadiness
+
 import munit.FunSuite
 import orca.{RunKey, StagePath, WorkspaceWrite}
 import orca.gitref.CommitHash
@@ -17,7 +19,8 @@ class ProgressStoreTest extends FunSuite:
     branchMode = BranchMode.Created,
     userPrompt = "my prompt",
     flow = None,
-    startingCommit = CommitHash.from("0" * 40).get
+    startingCommit = CommitHash.from("0" * 40).get,
+    prReadiness = PrReadiness.Ready
   )
 
   test("writeHeader then load returns the header with empty entries"):

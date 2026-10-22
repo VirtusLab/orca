@@ -28,15 +28,17 @@ def fs(using ctx: FlowContext): FsTool = ctx.fs
 def userPrompt(using ctx: FlowContext): String = ctx.userPrompt
 
 /** The planning-role agent (ADR 0020): resolved from settings (`planningAgent =
-  * harness[:model]`), default claude. Reference it in `Plan.*` calls instead of
-  * a concrete accessor so planning follows whichever backend the settings name.
+  * harness[:model][@effort]`), default claude. Reference it in `Plan.*` calls
+  * instead of a concrete accessor so planning follows whichever backend the
+  * settings name.
   */
 def planningAgent(using ctx: FlowContext): Agent[?] = ctx.planningAgent
 
 /** The coding-role agent — the run's primary: implementer sessions, branch
   * naming, stack discovery, and default commit messages run here. Reference it
   * in a body instead of a concrete accessor (`claude`/`codex`) so the flow
-  * follows whichever backend `codingAgent = harness[:model]` in settings names.
+  * follows whichever backend `codingAgent = harness[:model][@effort]` in
+  * settings names.
   *
   * Two ways to drive a model: a role accessor
   * (`codingAgent`/`planningAgent`/`reviewAgent`) is backend-agnostic — settings

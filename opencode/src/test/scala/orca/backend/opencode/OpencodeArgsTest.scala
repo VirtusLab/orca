@@ -1,7 +1,7 @@
 package orca.backend.opencode
 
 import orca.backend.{TurnMode, SystemPromptComposer}
-import orca.agents.{AutoApprove, AgentConfig, Model, ToolSet}
+import orca.agents.{AutoApprove, AgentConfig, Effort, Model, ToolSet}
 
 class OpencodeArgsTest extends munit.FunSuite:
 
@@ -68,6 +68,13 @@ class OpencodeArgsTest extends munit.FunSuite:
     assertEquals(
       OpencodeArgs.message(AgentConfig(), "hi", None, interactive).model,
       None
+    )
+
+  test("message sends the effort as the variant"):
+    val config = AgentConfig(effort = Some(Effort.Off))
+    assertEquals(
+      OpencodeArgs.message(config, "hi", None, interactive).variant,
+      Some("none")
     )
 
   test("message carries the composed system prompt, config included"):

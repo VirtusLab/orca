@@ -33,6 +33,7 @@ import orca.runner.{
   LoggingListener,
   OrcaBanner,
   OrcaLog,
+  RunGitHubTool,
   RunLogStarter,
   RunRequest,
   SetupOptions,
@@ -89,10 +90,10 @@ import scala.util.control.NonFatal
   * `{workDir}/.orca/settings.properties` > the user-global file
   * `$XDG_CONFIG_HOME/orca/settings.properties` > the built-in default (claude,
   * default model). Each file carries `planningAgent`/`codingAgent`/
-  * `reviewAgent = harness[:model]` lines; a malformed or unreadable value in
-  * either file aborts the run before any tree mutation. Setup emits one `Step`
-  * naming each resolved role and its source, the handle for "why did codex run
-  * here?".
+  * `reviewAgent = harness[:model][@effort]` lines; a malformed or unreadable
+  * value in either file aborts the run before any tree mutation. Setup emits
+  * one `Step` naming each resolved role and its source, the handle for "why did
+  * codex run here?".
   *
   * The three overrides are the programmatic top of that precedence — selector-
   * shaped (`Some(_.claude.opus)`) so a builder-derived sibling stays
@@ -488,7 +489,7 @@ private def runInContext(
       reviewAgent = resolvedRoles.review,
       wired = agents,
       runtimeGit = runtimeGit,
-      gh = ghTool,
+      gh = RunGitHubTool(ghTool, flowSetup.prReadiness),
       fs = fsTool,
       stackSettings = flowSetup.stackSettings,
       reviewerCatalog = reviewerCatalog,

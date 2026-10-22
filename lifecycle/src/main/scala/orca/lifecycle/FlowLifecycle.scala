@@ -32,7 +32,7 @@ import orca.progress.{
   NotASlugRefused
 }
 import orca.settings.{AgentSettings, SettingsFile, SettingsScope}
-import orca.tools.{RuntimeGit, UntrackedFiles}
+import orca.tools.{PrReadiness, RuntimeGit, UntrackedFiles}
 import orca.safe.Logger
 import orca.safe.prelude.{NonFatal, orThrow}
 
@@ -135,22 +135,27 @@ private[orca] object FlowLifecycle:
         * `--worktree`, or a resume the shell relaunched into one without the
         * flag. The closing summary names it.
         */
-      worktree: Option[os.Path]
+      worktree: Option[os.Path],
+      /** What a `createPr` without a readiness opens: this run's `--draft`, or
+        * on resume the first attempt's.
+        */
+      prReadiness: PrReadiness
   )
 
   /** The branch half of [[FlowSetup]], resolved by whichever of
     * [[SetupSession.bindBranch]]'s arms runs (corrupt log, absent log, or
     * resumed) before the stack-settings half is folded in.
     *
-    * `startingCommit` comes from the same arm: a fresh run records the commit
-    * it bound at, a resumed one reads back what its header recorded, so both
-    * name the state the RUN started from rather than this attempt's.
+    * `startingCommit` and `prReadiness` come from the same arm: a fresh run
+    * takes this attempt's, a resumed one reads back what its header recorded,
+    * so both describe the RUN rather than this attempt.
     */
   private[lifecycle] case class BranchBinding(
       featureBranch: FeatureBranch,
       startingHead: Head,
       branchMode: BranchMode,
-      startingCommit: Option[CommitHash]
+      startingCommit: Option[CommitHash],
+      prReadiness: PrReadiness
   )
 
   /** Bind the run to a branch + progress log before the body runs (ADR 0018
@@ -249,7 +254,8 @@ private[orca] object FlowLifecycle:
       binding.branchMode,
       startingTree,
       binding.startingCommit,
-      worktree
+      worktree,
+      binding.prReadiness
     )
 
   /** [[setup]]'s fixed inputs — the coding-role agent, git, the progress store,
@@ -380,7 +386,8 @@ private[orca] object FlowLifecycle:
         startingHead,
         if args.target.skipBranch then BranchMode.Reused
         else BranchMode.Created,
-        Some(headAtBinding)
+        Some(headAtBinding),
+        args.prReadiness
       )
 
     /** Fresh run: resolve + create the branch, then commit the header as the
@@ -437,7 +444,8 @@ private[orca] object FlowLifecycle:
             else BranchMode.Created,
           userPrompt = args.userPrompt,
           flow = flowSource,
-          startingCommit = headAtBinding
+          startingCommit = headAtBinding,
+          prReadiness = args.prReadiness
         )
       )
       git.forceCommitOnly(store.path, "orca: progress log")
@@ -497,7 +505,8 @@ private[orca] object FlowLifecycle:
         featureBranch,
         header.startingHead,
         header.branchMode,
-        startingCommit
+        startingCommit,
+        header.prReadiness
       )
 
     /** What a resumed run says about itself, once. `createBranch` and

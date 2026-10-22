@@ -44,7 +44,8 @@ export orca.agents.{
   PromptEvent,
   ToolSet,
   BackendTag,
-  Announce
+  Announce,
+  Effort
 }
 export orca.json.{JsonData, schemaFromJsonData, codecFromJsonData}
 export orca.plan.{
@@ -124,6 +125,7 @@ export orca.tools.{
   IssueHandle,
   NoDefaultBase,
   PrHandle,
+  PrReadiness,
   PushFailure
 }
 // Agent-override surface: the wiring an override factory receives, plus each

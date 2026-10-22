@@ -10,6 +10,7 @@ import orca.agents.{
   OpencodeAgent,
   PiAgent
 }
+import orca.settings.AgentSpec
 
 /** The five per-backend agents a run wires. The runtime resolves the three role
   * agents (ADR 0020) from settings against this set before the [[FlowContext]]
@@ -37,15 +38,11 @@ trait AgentSet:
     case BackendTag.Pi         => pi
     case BackendTag.Gemini     => gemini
 
-  /** [[agentFor]] with an optional model pin (a settings `harness:model` value)
-    * applied through `withModel`.
-    */
-  private[orca] def agentFor(
-      tag: BackendTag,
-      modelPin: Option[String]
-  ): Agent[?] =
-    val agent = agentFor(tag)
-    modelPin.fold(agent)(m => agent.withModel(Model(m)))
+  /** [[agentFor]] with a settings value's model pin and effort applied. */
+  private[orca] def agentFor(spec: AgentSpec): Agent[?] =
+    val agent = agentFor(spec.backend)
+    val pinned = spec.model.fold(agent)(m => agent.withModel(Model(m)))
+    spec.effort.fold(pinned)(pinned.withCheckedEffort)
 
   /** True when `a` runs on one of the five backends — one of this set's agents
     * itself or a builder-derived sibling (`_.claude.opus`, `.withReadOnly`, …).

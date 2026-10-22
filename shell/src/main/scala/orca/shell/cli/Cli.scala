@@ -11,6 +11,7 @@ import mainargs.{
 }
 import org.jline.terminal.Terminal
 import orca.RawArgs
+import orca.settings.AgentSpec
 import orca.shell.{ShellEnv, Tier, WorktreeScan}
 import orca.shell.run.LaunchResult
 import orca.shell.sessions.ObservedStatus
@@ -320,11 +321,11 @@ private[cli] class CliCommands(using env: ShellEnv):
       "Example: orca config --coding-agent codex"
   )
   def config(
-      @arg(doc = "planning role, as harness[:model]")
+      @arg(doc = "planning role, as " + AgentSpec.ValueForm)
       planningAgent: Option[String] = None,
-      @arg(doc = "coding role, as harness[:model]")
+      @arg(doc = "coding role, as " + AgentSpec.ValueForm)
       codingAgent: Option[String] = None,
-      @arg(doc = "review role, as harness[:model]")
+      @arg(doc = "review role, as " + AgentSpec.ValueForm)
       reviewAgent: Option[String] = None,
       @arg(doc =
         "rewrite a malformed settings file from scratch instead of refusing"

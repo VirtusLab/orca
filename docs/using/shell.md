@@ -27,7 +27,7 @@ works. The `--workspace` option keeps scala-cli's build metadata out of the
 current directory:
 
 ```bash
-scala-cli run --workspace "${XDG_CACHE_HOME:-$HOME/.cache}/orca/shell/workspace" --jvm 21 --quiet --verbose --dep "org.virtuslab::orca-shell:0.2.0" --main-class orca.shell.Main
+scala-cli run --workspace "${XDG_CACHE_HOME:-$HOME/.cache}/orca/shell/workspace" --jvm 21 --quiet --verbose --dep "org.virtuslab::orca-shell:0.2.1" --main-class orca.shell.Main
 ```
 
 ## The interactive shell
@@ -67,7 +67,8 @@ job. The commands are:
   selector, the newest one. `--list` shows the sessions, as JSON with
   `--json`.
 - `orca config` shows the role agents. `--planning-agent`, `--coding-agent`
-  and `--review-agent`, each taking `harness[:model]`, set any subset of them.
+  and `--review-agent`, each taking `harness[:model][@effort]` (see
+  [Settings](settings.md#agent-keys)), set any subset of them.
   Alternatively, `--edit project|global` opens a settings file for
   hand-editing, creating it from a template if it does not exist.
 - `orca list` lists project, global and built-in flows, as JSON with `--json`.
@@ -84,6 +85,7 @@ job. The commands are:
 | `--skip-branch` | continue on the current branch instead of creating one |
 | `--keep-changes` | leave uncommitted files in place instead of stashing them |
 | `--worktree` | run in a git worktree of this repository instead of the checkout |
+| `--draft` | open the run's PR as a draft |
 | `--honor-pin` | use the flow's own pinned Orca version |
 | `--verbose` | print a stack trace on abort |
 
@@ -118,7 +120,7 @@ orca continue              # resume the last session
 orca continue --list
 orca continue feat/rate-limiter
 orca config --coding-agent codex
-orca config --review-agent claude:sonnet
+orca config --review-agent claude:sonnet@high
 orca view implement.sc
 ```
 

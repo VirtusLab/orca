@@ -5,6 +5,7 @@ import orca.agents.{
   AutoApprove,
   BackendTag,
   AgentConfig,
+  EffortSupport,
   Enforcement,
   EnforcementCell,
   WireSessionId,
@@ -46,6 +47,7 @@ private[claude] object ClaudeArgs:
       "--include-partial-messages"
     ) ++
       modelArgs(config) ++
+      CliArgs.flag("--effort", config.effort)(EffortSupport.claude.wire) ++
       systemPromptFileArgs(systemPromptFile) ++
       sessionArgs(dispatch) ++
       permissionWiring(
