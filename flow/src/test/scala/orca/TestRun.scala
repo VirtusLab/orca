@@ -1,5 +1,7 @@
 package orca
 
+import orca.tools.PrReadiness
+
 import orca.agents.{Agent, BackendTag}
 import orca.events.EventDispatcher
 import orca.progress.{BranchMode, ProgressHeader, ProgressStore}
@@ -47,7 +49,8 @@ object TestRun:
         BranchMode.Created,
         userPrompt = userPrompt,
         flow = None,
-        startingCommit = headCommit
+        startingCommit = headCommit,
+        prReadiness = PrReadiness.Ready
       )
     )
     val context = new TestFlowContext(

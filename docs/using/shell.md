@@ -84,6 +84,7 @@ job. The commands are:
 | `--skip-branch` | continue on the current branch instead of creating one |
 | `--keep-changes` | leave uncommitted files in place instead of stashing them |
 | `--worktree` | run in a git worktree of this repository instead of the checkout |
+| `--draft` | open the run's PR as a draft |
 | `--honor-pin` | use the flow's own pinned Orca version |
 | `--verbose` | print a stack trace on abort |
 

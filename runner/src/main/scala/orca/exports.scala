@@ -119,6 +119,7 @@ export orca.tools.{
   IssueHandle,
   NoDefaultBase,
   PrHandle,
+  PrReadiness,
   PushFailure
 }
 // Agent-override surface: the wiring an override factory receives, plus each

@@ -34,6 +34,7 @@ import orca.runner.{
   OrcaLog,
   RoleAgents,
   RoleOverrides,
+  RunGitHubTool,
   RunLogStarter,
   RunRequest,
   SetupOptions,
@@ -460,7 +461,7 @@ private def runInContext(
       reviewAgent = resolvedRoles.review,
       wired = agents,
       runtimeGit = runtimeGit,
-      gh = ghTool,
+      gh = RunGitHubTool(ghTool, flowSetup.prReadiness),
       fs = fsTool,
       stackSettings = flowSetup.stackSettings,
       reviewerCatalog = reviewerCatalog

@@ -1,7 +1,15 @@
 package orca.pr
 
 import munit.FunSuite
-import orca.{BoundedDiff, OrcaFlowException, OutsideStage, interceptReported}
+import orca.{
+  BoundedDiff,
+  FlowContext,
+  FlowControl,
+  OrcaFlowException,
+  OutsideStage,
+  interceptReported
+}
+import orca.agents.Agent
 import orca.plan.Title
 import orca.progress.PublishedWork
 import orca.review.{FindingId, OpenFinding, OpenFindings, OpenReason}
@@ -10,6 +18,7 @@ import orca.tools.{
   GitHubAvailability,
   PrCreateFailed,
   PrHandle,
+  PrReadiness,
   PushFailure
 }
 import orca.events.{OrcaEvent, OrcaListener}
@@ -74,6 +83,26 @@ class OpenPrFromBranchTest extends FunSuite:
       steps.asScala.toList
     )
 
+  /** The readiness each `gh.createPr` got while `open` ran over a fresh seeded
+    * repo, given a summariser to pass on.
+    */
+  private def createPrReadinesses(
+      open: Agent[?] => (FlowContext, FlowControl) ?=> Any
+  ): List[Option[PrReadiness]] =
+    val (dir, store) = seededPrRepo()
+    val readinesses = new ConcurrentLinkedQueue[Option[PrReadiness]]()
+    val run = prRun(
+      dir,
+      store,
+      _ => (),
+      new ConcurrentLinkedQueue[String](),
+      availability = GitHubAvailability.Available("github.com", "acme", "w"),
+      prReadinesses = readinesses
+    )
+    import run.given
+    val _ = open(new StubSummariser().agent)
+    readinesses.asScala.toList
+
   private val oneOpen = OpenFindings(
     List(
       OpenFinding(
@@ -99,6 +128,48 @@ class OpenPrFromBranchTest extends FunSuite:
     assertEquals(
       r.stages,
       List("Push branch", "Generate PR title and description", "Open PR")
+    )
+
+  test("both open calls leave the readiness to gh by default"):
+    assertEquals(
+      createPrReadinesses(agent =>
+        openPrFromBranch(
+          summarisingAgent = agent,
+          openFindings = OpenFindings.empty
+        )
+      ),
+      List(None)
+    )
+    assertEquals(
+      createPrReadinesses(agent =>
+        openPrIfGitHub(
+          summarisingAgent = agent,
+          openFindings = OpenFindings.empty
+        )
+      ),
+      List(None)
+    )
+
+  test("both open calls pass an explicit readiness on"):
+    assertEquals(
+      createPrReadinesses(agent =>
+        openPrFromBranch(
+          summarisingAgent = agent,
+          openFindings = OpenFindings.empty,
+          readiness = Some(PrReadiness.Draft)
+        )
+      ),
+      List(Some(PrReadiness.Draft))
+    )
+    assertEquals(
+      createPrReadinesses(agent =>
+        openPrIfGitHub(
+          summarisingAgent = agent,
+          openFindings = OpenFindings.empty,
+          readiness = Some(PrReadiness.Draft)
+        )
+      ),
+      List(Some(PrReadiness.Draft))
     )
 
   test("openPrFromBranch reached inside a stage is refused before it pushes"):

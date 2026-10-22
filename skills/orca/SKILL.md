@@ -107,6 +107,7 @@ Add these flags only if the user asks:
   this shell's.
 - `--branch <name>` — create the run's branch under this name. Refused with
   `--skip-branch`, and when the branch already exists.
+- `--draft` — open the run's PR as a draft.
 
 ## After it runs
 

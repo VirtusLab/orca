@@ -1,5 +1,7 @@
 package orca.progress
 
+import orca.tools.PrReadiness
+
 import munit.FunSuite
 import orca.gitref.CommitHash
 import orca.testkit.branchName
@@ -17,7 +19,8 @@ class RecoveryCheckTest extends FunSuite:
         branchMode = BranchMode.Created,
         userPrompt = prompt,
         flow = None,
-        startingCommit = testCommit
+        startingCommit = testCommit,
+        prReadiness = PrReadiness.Ready
       )
       assert(
         RecoveryCheck.validateHeader(header, prompt, Set.empty).isLeft,
@@ -34,7 +37,8 @@ class RecoveryCheckTest extends FunSuite:
       branchMode = BranchMode.Created,
       userPrompt = prompt,
       flow = None,
-      startingCommit = testCommit
+      startingCommit = testCommit,
+      prReadiness = PrReadiness.Ready
     )
     val rejected = RecoveryCheck.validateHeader(header, prompt, Set("trunk"))
     assert(
@@ -64,7 +68,8 @@ class RecoveryCheckTest extends FunSuite:
       branchMode = BranchMode.Created,
       userPrompt = prompt,
       flow = None,
-      startingCommit = testCommit
+      startingCommit = testCommit,
+      prReadiness = PrReadiness.Ready
     )
     assertEquals(
       RecoveryCheck.validateHeader(header, prompt, Set.empty).map(_.value),
@@ -78,7 +83,8 @@ class RecoveryCheckTest extends FunSuite:
       branchMode = BranchMode.Created,
       userPrompt = "a different prompt",
       flow = None,
-      startingCommit = testCommit
+      startingCommit = testCommit,
+      prReadiness = PrReadiness.Ready
     )
     assert(
       RecoveryCheck.validateHeader(header, "do the thing", Set.empty).isLeft

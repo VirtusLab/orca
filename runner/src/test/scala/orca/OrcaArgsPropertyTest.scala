@@ -35,7 +35,8 @@ class OrcaArgsPropertyTest extends ScalaCheckSuite:
       target <- targetGen
       branch <-
         if target.skipBranch then Gen.const(None) else Gen.option(branchGen)
-    yield OrcaArgs(prompt, verbose, target, branch)
+      prReadiness <- Gen.oneOf(PrReadiness.values.toSeq)
+    yield OrcaArgs(prompt, verbose, target, branch, prReadiness)
 
   property("parse reads toArgv back as the same args"):
     forAll(argsGen): args =>

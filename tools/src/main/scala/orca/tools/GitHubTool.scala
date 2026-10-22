@@ -217,8 +217,17 @@ trait GitHubTool:
     * included. Refusals with a recovery path come back as `Left`s; throws on
     * detached HEAD, on gh output carrying no PR URL, and on system failures
     * (auth, network).
+    *
+    * `readiness` applies only to a PR this call opens (`gh pr create --draft`);
+    * when omitted, the run's `--draft` decides (applied by the run's `gh`).
+    * When an open PR already exists for the branch, it is returned as it is:
+    * neither draft nor ready state is changed.
     */
-  def createPr(title: String, body: String)(using
+  def createPr(
+      title: String,
+      body: String,
+      readiness: Option[PrReadiness] = None
+  )(using
       WorkspaceWrite
   ): Either[PrCreateFailed, PrHandle]
 
@@ -296,6 +305,8 @@ trait GitHubTool:
   *
   * `events` lets the tool publish a [[OrcaEvent.Step]] when a PR is opened so
   * the URL surfaces in the event log. Defaults to `OrcaListener.noop`.
+  *
+  * A `createPr` without a readiness opens a ready PR.
   */
 private[orca] class OsGitHubTool(
     cli: CliRunner,
@@ -466,8 +477,8 @@ private[orca] class OsGitHubTool(
       )
     catch case NonFatal(e) => Left(cannotRunGh(e))
 
-  def createPr(title: String, body: String)(using
-      ws: WorkspaceWrite
+  def createPr(title: String, body: String, readiness: Option[PrReadiness])(
+      using ws: WorkspaceWrite
   ): Either[PrCreateFailed, PrHandle] =
     ws.check("gh.createPr")
     // Inspect exit code + stderr ourselves to split the recoverable failures
@@ -480,15 +491,12 @@ private[orca] class OsGitHubTool(
     // its progress log would be misread as "branch not pushed". Bare branch
     // name, no `owner:` prefix, matching `findOpenPr`.
     val head = headBranchForPr()
+    val draftFlag = readiness.getOrElse(PrReadiness.Ready) match
+      case PrReadiness.Draft => Seq("--draft")
+      case PrReadiness.Ready => Nil
     val result = runGhResult(
-      "pr",
-      "create",
-      "--title",
-      title,
-      "--body",
-      body,
-      "--head",
-      head
+      (Seq("pr", "create", "--title", title, "--body", body, "--head", head) ++
+        draftFlag)*
     )
     if result.exitCode == 0 then
       val output = result.stdout.trim
