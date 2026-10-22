@@ -1,6 +1,7 @@
 package orca.shell.flows
 
 import orca.shell.{ShellEnv, Tier}
+import orca.subprocess.Spawn
 
 /** Opens a flow in the user's editor (ADR 0021 §6). */
 private[shell] object FlowEditor:
@@ -25,14 +26,7 @@ private[shell] object FlowEditor:
     * `ChildTerminal.withChild`. Returns the exit code.
     */
   def edit(editor: String, path: os.Path): Int =
-    os.proc(editArgv(editor, path))
-      .call(
-        stdin = os.Inherit,
-        stdout = os.Inherit,
-        stderr = os.Inherit,
-        check = false
-      )
-      .exitCode
+    Spawn.inheritingStdio(editArgv(editor, path), os.pwd)
 
   /** Copies a built-in flow into `tier` (Project or Global) so it can be edited
     * without touching the immutable built-in cache — the copy thereafter
