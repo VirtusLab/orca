@@ -5,7 +5,7 @@ import orca.{FlowSourceProperty, OrcaArgs}
 import orca.progress.FlowSource
 import orca.shell.{OrcaBuild, ShellEnv}
 import orca.shell.ui.{ShellOutput, ShellUi, UiOutcome}
-import orca.subprocess.QuietProc
+import orca.subprocess.{QuietProc, Spawn}
 
 /** Outcome of [[FlowLauncher.runAnnounced]]. */
 private[shell] enum LaunchResult:
@@ -175,17 +175,6 @@ private[shell] object FlowLauncher:
     os.makeDir.all(dir)
     dir
 
-  private def spawnInherited(argv: Seq[String], workDir: os.Path): Int =
-    os.proc(argv)
-      .call(
-        cwd = workDir,
-        stdin = os.Inherit,
-        stdout = os.Inherit,
-        stderr = os.Inherit,
-        check = false
-      )
-      .exitCode
-
   /** A snapshot that isn't in the local Ivy repository fails the forced compile
     * the same way an incompatible flow does, so its question names both.
     */
@@ -250,7 +239,7 @@ private[shell] object FlowLauncher:
             runForced(onIncompatible, flow, args, workDir)
           case PinPolicy.Honor =>
             toLaunchResult(
-              spawnInherited(
+              Spawn.inheritingStdio(
                 argv(flow, None, args, resolveWorkspaceDir()),
                 workDir
               )
@@ -275,7 +264,7 @@ private[shell] object FlowLauncher:
   )(using ShellEnv): LaunchResult =
     val build = OrcaBuild.current
     val workspaceDir = resolveWorkspaceDir()
-    val forcedExit = spawnInherited(
+    val forcedExit = Spawn.inheritingStdio(
       argv(flow, Some(build), args, workspaceDir),
       workDir
     )
@@ -297,7 +286,7 @@ private[shell] object FlowLauncher:
                   flow.fileName
                 )(
                   toLaunchResult(
-                    spawnInherited(
+                    Spawn.inheritingStdio(
                       argv(flow, None, args, workspaceDir),
                       workDir
                     )

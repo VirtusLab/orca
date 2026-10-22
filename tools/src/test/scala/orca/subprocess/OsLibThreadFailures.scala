@@ -20,6 +20,11 @@ object OsLibThreadFailures:
       if thread.getName.startsWith(ThreadPrefix) then
         failed.add(thread.getName).discard
       else if previous != null then previous.uncaughtException(thread, error)
+      // What the JVM prints with no default handler. Not the thread group's
+      // `uncaughtException`: the root group calls back into this handler.
+      else
+        System.err.print(s"Exception in thread \"${thread.getName}\" ")
+        error.printStackTrace(System.err)
     try
       body
       // Bounded: other suites' live processes have monitor threads too.

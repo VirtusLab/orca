@@ -26,6 +26,10 @@ class QuietProcTest extends munit.FunSuite:
     val result = QuietProc.call(Seq("bash", "-c", "exit 7"), cwd = os.pwd)
     assertEquals(result.exitCode, 7)
 
+  test("call feeds stdin to the child"):
+    val result = QuietProc.call(Seq("cat"), cwd = os.temp.dir(), stdin = "hi")
+    assertEquals(result.out.text(), "hi")
+
   test("call of a missing program fails only in the caller"):
     val failedThreads = OsLibThreadFailures.during:
       intercept[java.io.IOException]:
