@@ -1,6 +1,6 @@
 package orca.agents
 
-import orca.safe.concurrency
+import orca.concurrency
 import ox.scheduling.Schedule
 import orca.safe.prelude.DurationInt
 

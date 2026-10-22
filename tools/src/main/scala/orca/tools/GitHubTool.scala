@@ -5,8 +5,8 @@ import orca.events.{OrcaEvent, OrcaListener}
 import orca.subprocess.{CliResult, CliRunner}
 import orca.util.TextUtil
 import orca.json.JsonCodec
-import orca.safe.concurrency
-import orca.safe.concurrency.{nanoTime, retry, sleep}
+import orca.concurrency
+import orca.concurrency.{nanoTime, retry, sleep}
 import ox.resilience.RetryConfig
 import ox.scheduling.Schedule
 import orca.safe.prelude.{DurationInt, NonFatal}

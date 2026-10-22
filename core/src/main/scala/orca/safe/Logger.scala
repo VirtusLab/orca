@@ -15,7 +15,6 @@ final class Logger(name: String):
     if underlying.isDebugEnabled then underlying.debug(msg)
   def debug(msg: => String, t: Throwable): Unit =
     if underlying.isDebugEnabled then underlying.debug(msg, t)
-  def info(msg: String): Unit = underlying.info(msg)
   def warn(msg: String): Unit = underlying.warn(msg)
   def warn(msg: String, t: Throwable): Unit = underlying.warn(msg, t)
   def error(msg: String): Unit = underlying.error(msg)

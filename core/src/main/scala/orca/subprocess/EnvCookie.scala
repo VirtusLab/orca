@@ -12,8 +12,8 @@ import java.util.UUID
   * `setsid`, a double fork and reparenting to init — exactly the moves that
   * take a process out of `ProcessHandle.descendants`.
   *
-  * One cookie per spawn, minted in [[orca.effect.Processes.spawnPiped]]; every
-  * agent turn spawns a fresh CLI process.
+  * One cookie per spawn, minted in [[OsPipedSubProcess.spawn]]; every agent
+  * turn spawns a fresh CLI process.
   */
 private[orca] opaque type EnvCookie = String
 

@@ -2,7 +2,7 @@ package orca.backend
 
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.safe.Logger
-import orca.safe.concurrency.sleep
+import orca.concurrency.sleep
 import orca.safe.prelude.*
 import orca.subprocess.PipedCliProcess
 

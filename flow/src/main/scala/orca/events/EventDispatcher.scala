@@ -1,6 +1,7 @@
 package orca.events
 
-import orca.safe.{Logger, Ref}
+import orca.safe.Logger
+import orca.concurrency.Ref
 
 import orca.safe.prelude.NonFatal
 

@@ -47,14 +47,18 @@ object prelude:
   /** `path` resolved against `base` unless absolute. */
   def resolvePath(path: String, base: os.Path): os.Path = os.Path(path, base)
 
-  /** `path` as a relative path; throws unless it is one. */
-  def relPath(path: String): os.RelPath = os.RelPath(path)
+  /** `path` as a relative path, if it is one. */
+  def relPath(path: String): Option[os.RelPath] = parsed(os.RelPath(path))
 
-  /** `path` as a path below a root; throws unless it is one. */
-  def subPath(path: String): os.SubPath = os.SubPath(path)
+  /** `path` as a path below a root, if it is one. */
+  def subPath(path: String): Option[os.SubPath] = parsed(os.SubPath(path))
 
-  /** `path` as an absolute path; throws unless it is one. */
-  def absolutePath(path: String): os.Path = os.Path(path)
+  /** `path` as an absolute path, if it is one. */
+  def absolutePath(path: String): Option[os.Path] = parsed(os.Path(path))
+
+  private def parsed[P](parse: => P): Option[P] =
+    try Some(parse)
+    catch case _: IllegalArgumentException => None
 
   /** `text` encoded as UTF-8. */
   def utf8Bytes(text: String): IArray[Byte] =

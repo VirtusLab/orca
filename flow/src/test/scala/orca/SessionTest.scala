@@ -1,6 +1,5 @@
 package orca
 
-import orca.effect.FileSystem
 import munit.FunSuite
 import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
 import orca.agents.{Agent, BackendTag, SessionId, WireSessionId}
@@ -66,7 +65,7 @@ class SessionTest extends FunSuite:
         ),
         new TestFlowControl(
           orca.progress.ProgressStore
-            .default(FileSystem.ambient, dir, RunKey.of("p")),
+            .default(Effects.fs, dir, RunKey.of("p")),
           log
         )
       )

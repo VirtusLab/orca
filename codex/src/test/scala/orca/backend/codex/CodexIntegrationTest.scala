@@ -1,7 +1,7 @@
 package orca.backend.codex
 
-import orca.effect.{FileSystem, Network, Processes}
-import orca.testkit.OpenTurn
+import orca.effect.Network
+import orca.testkit.{Effects, OpenTurn}
 import orca.AgentTurnFailed
 import orca.agents.{
   AutoApprove,
@@ -42,10 +42,10 @@ class CodexIntegrationTest extends munit.FunSuite:
     SupervisedBackend.using(
       new CodexBackend(
         Network.ambient,
-        FileSystem.ambient,
-        OsProcCliRunner(Processes.ambient),
+        Effects.fs,
+        OsProcCliRunner(Effects.procs),
         CodexBackend.rolloutProbe(
-          FileSystem.ambient,
+          Effects.fs,
           os.home / ".codex" / "sessions"
         ),
         workDir = workDir

@@ -1,10 +1,9 @@
 package orca.backend.mcp
 
-import chimp.server.{NoStructuredOutput, ServerContext, ServerTool, ToolResult}
+import chimp.server.{NoStructuredOutput, ToolResult}
 import orca.effect.Network
-import orca.safe.mcp
+import orca.mcp
 import ox.Ox
-import sttp.shared.Identity
 import orca.safe.prelude.NonFatal
 
 import scala.concurrent.duration.FiniteDuration
@@ -21,7 +20,7 @@ private[backend] class McpHost private[mcp] (val port: Int):
   /** The URL an MCP client (claude's `.mcp.json`, codex's
     * `mcp_servers.<name>.url`) should target.
     */
-  val url: String = s"${McpHost.UrlPrefix}$port/mcp"
+  val url: String = s"${McpHost.UrlPrefix}$port/${mcp.endpointPath}"
 
 private[backend] object McpHost:
 
@@ -71,9 +70,7 @@ private[backend] object McpHost:
     * reach: `withStructured` moves the type parameter, and `ServerTool` is
     * invariant in it, so a tool built that way no longer fits [[start]]'s list.
     */
-  private[mcp] def guarded[I](
-      t: ServerTool[I, NoStructuredOutput, Identity, ServerContext[Identity]]
-  ): ServerTool[I, NoStructuredOutput, Identity, ServerContext[Identity]] =
+  private[mcp] def guarded[I](t: mcp.Tool[I]): mcp.Tool[I] =
     t.copy(logic =
       (in, ctx, headers) => guardedResult(t.logic(in, ctx, headers))
     )
@@ -85,10 +82,8 @@ private[backend] object McpHost:
     */
   private[mcp] def start(
       net: Network,
-      tools: List[
-        ServerTool[?, NoStructuredOutput, Identity, ServerContext[Identity]]
-      ],
+      tools: List[mcp.Tool[?]],
       toolTimeout: FiniteDuration
   )(using Ox): McpHost =
-    val endpoint = mcp.endpoint(tools.map(t => guarded(t)), "mcp")
+    val endpoint = mcp.endpoint(tools.map(t => guarded(t)))
     new McpHost(net.serveLocal(List(endpoint), toolTimeout))

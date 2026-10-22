@@ -5,7 +5,9 @@ import orca.effect.FileSystem
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.gitref.BranchName
 import orca.sessions.{SessionRecord, SessionStore}
-import orca.safe.{Logger, Ref, concurrency}
+import orca.safe.Logger
+import orca.concurrency
+import orca.concurrency.Ref
 import ox.Ox
 import ox.Fork
 import ox.channels.{ActorRef, BufferCapacity, Channel}
@@ -19,7 +21,7 @@ import orca.safe.prelude.NonFatal
   *
   * Every call waits until the in-memory projection is updated; appending to the
   * file happens in the background, in call order. No call throws: a failed
-  * append is logged and dropped, and so is an event recorded after [[finish]].
+  * append is logged and dropped, and so is anything recorded after [[finish]].
   */
 private[orca] trait RunEventLog extends OrcaListener, SessionStore:
   /** Records the run's success on `branch`, with the published PR/MR reference;
@@ -79,7 +81,7 @@ private[orca] object RunEventLog:
         )
       )
     )
-    ActorRunEventLog(owner, queue, writer)
+    ActorRunEventLog(owner, writer)
 
   // A crash mid-append leaves a last line without its newline; the next
   // append would join it, and neither line would decode.
@@ -103,7 +105,6 @@ private[orca] object RunEventLog:
 
 private class ActorRunEventLog(
     owner: ActorRef[ProjectionOwner],
-    queue: Channel[RunEvent],
     writer: Fork[Unit]
 ) extends RunEventLog:
   def onEvent(event: OrcaEvent): Unit = owner.ask(_.observed(event))
@@ -117,7 +118,6 @@ private class ActorRunEventLog(
     owner.ask(_.finished(outcome))
     // The writer drains the queue in order, so this returns after every
     // queued append.
-    queue.done()
     writer.join()
 
 /** What the attempt knows of its run: the session records, and the open stages
@@ -246,7 +246,8 @@ private case class Projection(
     )
 
 /** Owns the [[Projection]]. Every method runs on the actor's thread, never
-  * throws, and queues the events it records for the writer fork.
+  * throws, and queues the events it records for the writer fork. [[finished]]
+  * closes the queue; a call after it is logged and dropped.
   */
 private class ProjectionOwner(
     initial: Projection,
@@ -289,6 +290,7 @@ private class ProjectionOwner(
           List(RunEvent.AttemptFinished(clock(), attempt, outcome))
         )
       )
+    val _ = queue.doneOrClosed()
 
   /** Moves to the next projection, then queues its events for the file. */
   private def advance(transition: (Projection, List[RunEvent])): Unit =
@@ -299,8 +301,11 @@ private class ProjectionOwner(
   // A throw here would quarantine the listener (from `observed`) or reach the
   // flow's teardown (from the rest).
   private def guarded(what: String)(op: => Unit): Unit =
-    try op
-    catch case NonFatal(e) => log.warn(s"$what failed (best-effort)", e)
+    if queue.isClosedForSend then
+      log.warn(s"$what after the attempt finished (dropped)")
+    else
+      try op
+      catch case NonFatal(e) => log.warn(s"$what failed (best-effort)", e)
 
 /** Appends `event` to the event log at `path`. Runs on the writer fork, so the
   * attempt does not wait on disk; a failed append is logged and the event

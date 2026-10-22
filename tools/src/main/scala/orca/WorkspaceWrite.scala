@@ -2,7 +2,7 @@ package orca
 
 import language.experimental.captureChecking
 
-import orca.safe.concurrency.{ThreadIdentity, currentThread}
+import orca.concurrency.{ThreadIdentity, currentThread}
 
 import scala.annotation.implicitNotFound
 

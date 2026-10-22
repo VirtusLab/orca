@@ -1,8 +1,7 @@
 package orca.tools
 
-import orca.effect.Processes
 import orca.subprocess.OsProcCliRunner
-import orca.testkit.prHandle
+import orca.testkit.{Effects, prHandle}
 
 /** End-to-end tests against the real `gh` CLI. Gated on the `ORCA_INTEGRATION`
   * environment variable and require `gh auth login` on the host. The tests read
@@ -15,7 +14,7 @@ class OsGitHubIntegrationTest extends munit.FunSuite:
     else Nil
 
   test("gh CLI is installed and invokable via the CliRunner"):
-    val result = OsProcCliRunner(Processes.ambient)
+    val result = OsProcCliRunner(Effects.procs)
       .run(Seq("gh", "--version"), cwd = os.pwd)
     assertEquals(result.exitCode, 0)
     assert(
@@ -24,7 +23,7 @@ class OsGitHubIntegrationTest extends munit.FunSuite:
     )
 
   test("gh api user succeeds under the authenticated session"):
-    val result = OsProcCliRunner(Processes.ambient)
+    val result = OsProcCliRunner(Effects.procs)
       .run(Seq("gh", "api", "user"), cwd = os.pwd)
     assertEquals(
       result.exitCode,
@@ -36,7 +35,7 @@ class OsGitHubIntegrationTest extends munit.FunSuite:
   test("readPrComments succeeds against a public issue-or-PR endpoint"):
     // GitHub's /issues/{n}/comments endpoint is shared between issues and PRs;
     // Hello-World #1 is stable public data.
-    val gh = new OsGitHubTool(OsProcCliRunner(Processes.ambient), os.pwd)
+    val gh = new OsGitHubTool(OsProcCliRunner(Effects.procs), os.pwd)
     val handle = prHandle("https://github.com/octocat/Hello-World/pull/1")
     val comments = gh.readPrComments(handle)
     assert(comments.forall(_.author.nonEmpty))

@@ -525,10 +525,13 @@ private[orca] class OsGitTool(
     * Symlinks to a file or to nothing are diffable, as mode 120000.
     */
   private def undiffableReason(relPath: String): Option[String] =
-    val path = workDir / orca.safe.prelude.relPath(relPath)
-    if fs.isLink(path) && fs.isDir(path) then Some("symlink to a directory")
-    else if fs.exists(path / ".git") then Some("nested git repository")
-    else None
+    orca.safe.prelude.relPath(relPath).map(workDir / _) match
+      case None => Some("not a relative path")
+      case Some(path) if fs.isLink(path) && fs.isDir(path) =>
+        Some("symlink to a directory")
+      case Some(path) if fs.exists(path / ".git") =>
+        Some("nested git repository")
+      case Some(_) => None
 
   // `--end-of-options` so a `base` spelled like a flag is refused as a
   // revision rather than obeyed (`--output=<path>` would write a file).

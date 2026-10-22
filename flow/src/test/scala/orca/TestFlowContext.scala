@@ -1,5 +1,7 @@
 package orca
 
+import orca.testkit.Effects
+
 import orca.events.{EventDispatcher, OrcaEvent}
 import orca.agents.{
   Agent,
@@ -47,8 +49,8 @@ class TestFlowContext(
   lazy val fs: FsTool = stub("fs")
   private[orca] lazy val gateShell: orca.review.GateShell =
     orca.review.OsGateShell(
-      orca.effect.Processes.ambient,
-      orca.effect.FileSystem.ambient
+      Effects.procs,
+      Effects.fs
     )
 
   private[orca] def emit(event: OrcaEvent): Unit = dispatcher.onEvent(event)

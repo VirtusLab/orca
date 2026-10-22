@@ -2,7 +2,7 @@ package orca.events
 
 import orca.agents.Model
 
-import orca.safe.Ref
+import orca.concurrency.Ref
 
 /** Listener that accumulates `TokensUsed` events along three independent axes —
   * by `agent`, by `model` and by `role`. Safe to register across concurrent LLM

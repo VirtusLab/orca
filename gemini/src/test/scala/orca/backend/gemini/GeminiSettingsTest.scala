@@ -3,12 +3,11 @@ package orca.backend.gemini
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import com.github.plokhotnyuk.jsoniter_scala.macros.JsonCodecMaker
 import orca.OrcaFlowException
-import orca.effect.FileSystem
-import orca.testkit.TempDirs
+import orca.testkit.{Effects, TempDirs}
 
 class GeminiSettingsTest extends munit.FunSuite:
 
-  private val fs = FileSystem.ambient
+  private val fs = Effects.fs
 
   private given mapCodec
       : com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec[

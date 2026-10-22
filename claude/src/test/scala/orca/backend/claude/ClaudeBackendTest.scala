@@ -1,7 +1,7 @@
 package orca.backend.claude
 
-import orca.effect.{FileSystem, Network, Processes}
-import orca.testkit.OpenTurn
+import orca.effect.Network
+import orca.testkit.{Effects, OpenTurn}
 import orca.backend.{
   Dispatch,
   ResumeOrigin,
@@ -66,12 +66,12 @@ class ClaudeBackendTest extends munit.FunSuite:
       projectsDir: os.Path = TempDirs.dir(),
       workDir: os.Path = os.pwd
   ): ClaudeBackend =
-    val fs = FileSystem.ambient
+    val fs = Effects.fs
     new ClaudeBackend(
       Network.ambient,
       fs,
       cli,
-      new OsGitTool(_, Processes.ambient, fs),
+      new OsGitTool(_, Effects.procs, fs),
       ClaudeBackend.transcriptProbe(fs, projectsDir),
       workDir
     )

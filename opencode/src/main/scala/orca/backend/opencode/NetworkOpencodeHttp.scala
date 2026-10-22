@@ -3,7 +3,7 @@ package orca.backend.opencode
 import orca.OrcaFlowException
 import orca.backend.StreamSource
 import orca.effect.{HttpClient, Network}
-import orca.safe.concurrency.sleep
+import orca.concurrency.sleep
 import orca.safe.prelude.{DurationInt, NonFatal}
 import ox.ResourceScope
 

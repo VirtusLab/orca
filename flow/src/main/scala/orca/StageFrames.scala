@@ -2,7 +2,7 @@ package orca
 
 import orca.agents.SessionKey
 import orca.gitref.CommitHash
-import orca.safe.{Ref, concurrency}
+import orca.concurrency.Ref
 
 /** Where a turn sits in this attempt's use of one durable conversation. Minted
   * by [[StageFrames.claimTurn]].

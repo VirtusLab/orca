@@ -1,16 +1,21 @@
 package orca.runlog
 
-import orca.effect.FileSystem
 import orca.{AttemptId, OrcaDir, OrcaFlowException, RunKey, StagePath}
 import orca.agents.{BackendTag, Model, SessionKey}
 import orca.events.{Cost, CostBasis, OrcaEvent, StageOutcome, Usage}
 import orca.gitref.BranchName
 import orca.sessions.SessionRecord
-import orca.testkit.TempDirs
+import orca.testkit.{Effects, TempDirs}
 import ox.supervised
 import ox.channels.BufferCapacity
 
+import ch.qos.logback.classic.{Level, Logger as LogbackLogger}
+import ch.qos.logback.classic.spi.ILoggingEvent
+import ch.qos.logback.core.read.ListAppender
+import org.slf4j.LoggerFactory
+
 import java.time.Instant
+import scala.jdk.CollectionConverters.*
 
 class RunEventLogTest extends munit.FunSuite:
 
@@ -71,7 +76,7 @@ class RunEventLogTest extends munit.FunSuite:
   private def started(dir: os.Path)(using ox.Ox): RunEventLog =
     given BufferCapacity = BufferCapacity(8)
     RunEventLog.start(
-      FileSystem.ambient,
+      Effects.fs,
       dir,
       key,
       attempt,
@@ -89,7 +94,21 @@ class RunEventLogTest extends munit.FunSuite:
     fileEvents(dir).drop(1).dropRight(1)
 
   private def fileEvents(dir: os.Path): List[RunEvent] =
-    RunEventReader(FileSystem.ambient).read(OrcaDir.eventLogPath(dir, key))
+    RunEventReader(Effects.fs).read(OrcaDir.eventLogPath(dir, key))
+
+  /** What `orca.flow` logs at WARN while `body` runs, other suites included. */
+  private def warnings(body: => Unit): List[String] =
+    val logger =
+      LoggerFactory.getLogger("orca.flow").asInstanceOf[LogbackLogger]
+    val appender = ListAppender[ILoggingEvent]()
+    appender.start()
+    logger.addAppender(appender)
+    try body
+    finally
+      val _ = logger.detachAppender(appender)
+    appender.list.asScala.toList
+      .filter(_.getLevel == Level.WARN)
+      .map(_.getFormattedMessage)
 
   test("the log starts with AttemptStarted carrying the schema"):
     val dir = TempDirs.dir()
@@ -302,15 +321,22 @@ class RunEventLogTest extends munit.FunSuite:
         Some(RunEvent.AttemptFinished(at, attempt, AttemptOutcome.Succeeded))
       )
 
-  test("an event after finish is dropped without throwing"):
+  test("an event after finish is dropped with a warning"):
     val dir = TempDirs.dir()
-    supervised:
-      val log = started(dir)
-      log.finish(AttemptOutcome.Succeeded)
-      log.onEvent(OrcaEvent.StageStarted(outer))
+    val warned = warnings:
+      supervised:
+        val log = started(dir)
+        log.finish(AttemptOutcome.Succeeded)
+        log.onEvent(OrcaEvent.StageStarted(outer))
     assertEquals(
       fileEvents(dir).lastOption,
       Some(RunEvent.AttemptFinished(at, attempt, AttemptOutcome.Succeeded))
+    )
+    assert(
+      warned.contains(
+        "recording StageStarted after the attempt finished (dropped)"
+      ),
+      warned
     )
 
   test("a torn last line does not swallow the next AttemptStarted"):

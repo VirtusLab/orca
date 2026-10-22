@@ -13,8 +13,8 @@ import orca.agents.{
   ToolSet,
   TurnDispatch
 }
-import orca.safe.Ref
-import orca.safe.concurrency.supervised
+import orca.concurrency.Ref
+import orca.concurrency.supervised
 import ox.Ox
 
 /** SPI implemented per backend (Claude, Codex, …), called from the

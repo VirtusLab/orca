@@ -2,9 +2,9 @@ package orca.backend.gemini
 
 import orca.backend.SupervisedBackend
 import orca.agents.{AgentConfig, GeminiAgent}
-import orca.effect.{FileSystem, Network}
+import orca.effect.Network
 import orca.subprocess.{FakePipedCliProcess, SpawnStubCliRunner}
-import orca.testkit.TestAgent
+import orca.testkit.{Effects, TestAgent}
 import orca.backend.gemini.GeminiAgents.flash
 
 class GeminiAgentsTest extends munit.FunSuite:
@@ -29,7 +29,7 @@ class GeminiAgentsTest extends munit.FunSuite:
       config: AgentConfig
   )(body: GeminiAgent => Unit): Unit =
     SupervisedBackend.using(
-      new GeminiBackend(Network.ambient, FileSystem.ambient, runner, os.pwd)
+      new GeminiBackend(Network.ambient, Effects.fs, runner, os.pwd)
     ): backend =>
       body(TestAgent(backend, config = config))
 

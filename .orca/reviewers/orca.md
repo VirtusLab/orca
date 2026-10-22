@@ -14,11 +14,11 @@ performance, tests — belongs to the shipped reviewers running beside you.
 - **Forge neutrality**: interfaces and persisted documents name git concepts,
   never a forge; a forge-specific type stays in the package that talks to it.
 - **New mutable state is a design question**: a new `var` field, mutable
-  collection or `AtomicReference` needs the task description or a comment at
+  collection, `AtomicReference` or `orca.concurrency.Ref` needs the task description or a comment at
   the declaration to name the alternatives (actor, method-local state, an
   `AtomicReference` over an immutable value) and why each was rejected —
   report the missing rationale, not the state itself. Actor-held state and an
-  `AtomicReference` (`orca.safe.Ref` in safe modules) over an immutable value
+  `AtomicReference` (`orca.concurrency.Ref` in safe modules) over an immutable value
   updated by a pure function are the sanctioned forms; never
   `caps.SharedCapability` + `caps.Stateful`. Safe mode still compiles
   `@volatile` and `synchronized`, so flag them as before.
@@ -44,10 +44,12 @@ performance, tests — belongs to the shipped reviewers running beside you.
   WorkspaceWrite)` to make code compile; `WorkspaceWrite` never crosses a fork;
   a new gated write calls `WorkspaceWrite.check` first.
 - **Writes under `.orca/`**: a whole-file write replaces an `OrcaDir.OrcaFile`;
-  any other write goes inside an `OrcaDir.ensure*` directory, with `os.write`
-  over `os.write.over`. A new file gets a row in AGENTS.md's "What a run writes
+  any other write goes inside an `OrcaDir.ensure*` directory, with
+  `fs.writeNew` over `fs.writeOver` (plain modules: `os.write` over
+  `os.write.over`). A new file gets a row in AGENTS.md's "What a run writes
   to disk".
-- **Subprocesses capture stderr** — `Processes` or a `CliRunner`; a
+- **Subprocesses capture stderr** — `Processes`, a `CliRunner`, or
+  `QuietProc` in plain modules (runner/shell); a
   `spawnPiped` caller drains `stderrLines` as well as `stdoutLines`. Raw
   `os.proc` with `os.Inherit` only in the `shell/` terminal handoffs and
   `TtyProbe`.

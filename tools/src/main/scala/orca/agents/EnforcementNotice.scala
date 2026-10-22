@@ -1,7 +1,8 @@
 package orca.agents
 
 import orca.events.{OrcaEvent, OrcaListener}
-import orca.safe.{Logger, Ref}
+import orca.safe.Logger
+import orca.concurrency.Ref
 
 /** Says, when a turn asks a backend for a restriction it cannot mechanically
   * apply, that the restriction is not mechanical — the runtime's only consumer

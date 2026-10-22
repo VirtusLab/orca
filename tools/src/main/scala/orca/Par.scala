@@ -1,7 +1,5 @@
 package orca
 
-import orca.safe.concurrency
-
 /** The sanctioned fan-out for flow scripts: run `f` over `items` concurrently
   * and collect the results, without importing Ox directly.
   *

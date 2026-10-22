@@ -5,8 +5,8 @@ import orca.backend.mcp.AskUserBridge
 import orca.util.{OrcaDebug, TerminalControl}
 import orca.{AgentTurnFailed, OrcaInteractiveCancelled}
 
-import orca.safe.concurrency
-import orca.safe.concurrency.{fork, forkDiscard, forkUnsupervised}
+import orca.concurrency
+import orca.concurrency.{fork, forkDiscard, forkUnsupervised}
 import orca.safe.prelude.{NonFatal, discard, pipe}
 import ox.{Fork, Ox, UnsupervisedFork}
 import ox.channels.Channel

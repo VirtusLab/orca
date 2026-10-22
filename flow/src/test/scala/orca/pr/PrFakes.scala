@@ -2,7 +2,6 @@
 // into the real `stage` machinery over a seeded repo.
 package orca.pr
 
-import orca.effect.FileSystem
 import orca.{RunKey, TestFlowContext, TestFlowControl, TestRun, WorkspaceWrite}
 import orca.agents.{Agent, BackendTag}
 import orca.tools.{
@@ -122,7 +121,7 @@ private[pr] def seededPrRepo(
     os.write(dir / "code.txt", "real code")
     val _ = os.proc("git", "add", "code.txt").call(cwd = dir)
     val _ = os.proc("git", "commit", "-m", "work").call(cwd = dir)
-  val store = ProgressStore.default(FileSystem.ambient, dir, RunKey.of("p"))
+  val store = ProgressStore.default(Effects.fs, dir, RunKey.of("p"))
   given WorkspaceWrite = WorkspaceWrite.unsafe
   val startingBranch = branchMode match
     case BranchMode.Created => startBranch

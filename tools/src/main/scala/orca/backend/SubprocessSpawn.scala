@@ -2,7 +2,7 @@ package orca.backend
 
 import orca.OrcaFlowException
 import orca.events.OrcaListener
-import orca.safe.concurrency.releaseAfterScope
+import orca.concurrency.releaseAfterScope
 import orca.subprocess.PipedCliProcess
 import ox.ResourceScope
 

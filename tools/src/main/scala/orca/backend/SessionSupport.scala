@@ -3,7 +3,8 @@ package orca.backend
 import orca.AgentTurnFailed
 import orca.events.TurnDebit
 import orca.agents.{BackendTag, SessionId, TurnDispatch, WireSessionId, onWire}
-import orca.safe.{Logger, Ref}
+import orca.safe.Logger
+import orca.concurrency.Ref
 import orca.safe.prelude.NonFatal
 
 /** What the next turn against a client id does with the backend's conversation

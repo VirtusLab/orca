@@ -1,6 +1,6 @@
 package orca.events
 
-import orca.safe.Ref
+import orca.concurrency.Ref
 
 /** Listener that counts `ToolDenied` events per tool, with the names of the
   * agents that were denied it, for an end-of-run summary.

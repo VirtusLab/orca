@@ -1,6 +1,5 @@
 package orca.lifecycle
 
-import orca.effect.{FileSystem, Processes}
 import orca.{OrcaDir, RunKey}
 import orca.progress.ProgressStore
 import orca.testkit.{Effects, GitRepo, TempDirs}
@@ -9,7 +8,7 @@ import ox.discard
 class WorktreeRunTest extends munit.FunSuite:
 
   private val worktreeRun =
-    WorktreeRun(Processes.ambient, FileSystem.ambient, NoLock)
+    WorktreeRun(Effects.procs, Effects.fs, NoLock)
 
   private object NoLock extends WorktreeLock:
     def worktreeLocked[T](mainCheckout: os.Path, key: RunKey)(op: => T): T = op
@@ -23,7 +22,7 @@ class WorktreeRunTest extends munit.FunSuite:
     // resumed run land where its log is.
     assert(
       ProgressStore
-        .default(FileSystem.ambient, path, RunKey.of("task A"))
+        .default(Effects.fs, path, RunKey.of("task A"))
         .path
         .last
         .contains(path.last),

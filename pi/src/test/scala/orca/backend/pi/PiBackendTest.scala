@@ -1,6 +1,5 @@
 package orca.backend.pi
 
-import orca.effect.FileSystem
 import orca.testkit.{Effects, OpenTurn}
 import orca.OrcaDir
 import orca.backend.SystemPromptComposer
@@ -25,7 +24,7 @@ class PiBackendTest extends munit.FunSuite:
   private def sid: SessionId[BackendTag.Pi.type] =
     SessionId[BackendTag.Pi.type]("00000000-0000-0000-0000-000000000000")
 
-  private val fs = FileSystem.ambient
+  private val fs = Effects.fs
 
   /** Pi's session dirs live under `<workDir>/.orca/cache/pi-sessions/`, so
     * `workDir` defaults to a throwaway dir rather than the repo.

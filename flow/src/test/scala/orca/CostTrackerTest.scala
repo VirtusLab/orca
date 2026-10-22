@@ -667,9 +667,8 @@ class CostTrackerTest extends munit.FunSuite:
     assertEquals((new CostTracker).summary, "")
 
   test("concurrent onEvent calls from two threads keep every tally"):
-    // The reviewer fan-out emits from parallel forks. `AtomicReference`'s
-    // compare-and-set retry is what makes that safe; a get-then-set refactor
-    // would drop tallies.
+    // The reviewer fan-out emits from parallel forks. `Ref.update`'s retry
+    // is what makes that safe; a get-then-set refactor would drop tallies.
     val tracker = new CostTracker
     supervised:
       val emitters = (0 until 2).map: t =>

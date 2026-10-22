@@ -23,7 +23,7 @@ import orca.backend.{
 import orca.backend.mcp.{AskUserMcpServer, AskUserSession}
 import orca.effect.{FileSystem, Network}
 import orca.subprocess.CliRunner
-import orca.safe.concurrency.defaultBufferCapacity
+import orca.concurrency.defaultBufferCapacity
 import ox.{Ox, ResourceScope}
 
 /** Codex backend. Both autonomous and interactive paths drive `codex exec

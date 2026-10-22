@@ -4,7 +4,7 @@ import orca.{AttemptId, StagePath}
 import orca.agents.BackendTag
 import orca.events.StageOutcome
 import orca.gitref.BranchName
-import orca.testkit.TempDirs
+import orca.testkit.{Effects, TempDirs}
 import ox.tap
 
 import java.time.Instant
@@ -30,7 +30,7 @@ class RunEventReaderTest extends munit.FunSuite:
       RunEvent.encodeLine(bound).take(20)
     )
     assertEquals(
-      new RunEventReader(orca.effect.FileSystem.ambient).read(log),
+      new RunEventReader(Effects.fs).read(log),
       List(bound, finished)
     )
 
@@ -39,13 +39,13 @@ class RunEventReaderTest extends munit.FunSuite:
       """{"type":"BranchBound","at":"2026-10-08T10:00:00Z","attempt":"1000-42","branch":"b","extra":{"x":1}}"""
     )
     assertEquals(
-      new RunEventReader(orca.effect.FileSystem.ambient).read(log),
+      new RunEventReader(Effects.fs).read(log),
       List(bound)
     )
 
   test("an absent file has no events"):
     assertEquals(
-      new RunEventReader(orca.effect.FileSystem.ambient)
+      new RunEventReader(Effects.fs)
         .read(TempDirs.dir() / "events.jsonl"),
       Nil
     )
@@ -54,7 +54,7 @@ class RunEventReaderTest extends munit.FunSuite:
     val dir = TempDirs.dir() / "events.jsonl"
     os.makeDir(dir)
     assertEquals(
-      new RunEventReader(orca.effect.FileSystem.ambient).read(dir),
+      new RunEventReader(Effects.fs).read(dir),
       Nil
     )
 
@@ -65,7 +65,7 @@ class RunEventReaderTest extends munit.FunSuite:
       RunEvent.encodeLine(bound)
     )
     assertEquals(
-      new RunEventReader(orca.effect.FileSystem.ambient)
+      new RunEventReader(Effects.fs)
         .readOnly(log, Set(classOf[RunEvent.AttemptFinished])),
       List(finished)
     )
@@ -119,7 +119,7 @@ class RunEventReaderTest extends munit.FunSuite:
     val log = logOf(events.map(RunEvent.encodeLine)*)
     events.foreach(e =>
       assertEquals(
-        new RunEventReader(orca.effect.FileSystem.ambient)
+        new RunEventReader(Effects.fs)
           .readOnly(log, Set(e.getClass)),
         List(e)
       )

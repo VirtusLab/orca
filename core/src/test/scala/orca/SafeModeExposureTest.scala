@@ -48,7 +48,7 @@ class SafeModeExposureTest extends munit.FunSuite:
     (
       "an ambient effect passed through an inline facade",
       "read",
-      "def f(p: os.Path): String = orca.safe.concurrency.supervised(os.read(p))"
+      "def f(p: os.Path): String = orca.concurrency.supervised(os.read(p))"
     )
   )
 
@@ -80,7 +80,7 @@ class SafeModeExposureTest extends munit.FunSuite:
     val errors = Dotc.errorsOf(
       safeFixture(
         """import orca.effect.{FileSystem, Network, Processes}
-          |import orca.safe.concurrency.supervised
+          |import orca.concurrency.supervised
           |import orca.safe.prelude.{*, given}
           |def head(cwd: os.Path)(using procs: Processes): String =
           |  procs.call(Seq("git", "rev-parse", "HEAD"), cwd).stdout
@@ -109,7 +109,7 @@ class SafeModeExposureTest extends munit.FunSuite:
       safeFixture(
         """import orca.json.{JsonCodec, JsonData, given}
           |import orca.safe.Logger
-          |import orca.safe.concurrency.*
+          |import orca.concurrency.*
           |import orca.safe.prelude.{*, given}
           |
           |case class Wire(n: Int, tags: List[String]) derives JsonCodec

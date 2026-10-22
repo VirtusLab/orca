@@ -1,14 +1,13 @@
 package orca.runner
 
 import orca.lifecycle.WorktreeRun
-import orca.effect.{FileSystem, Processes}
 import orca.{OrcaDir, OrcaFlowException, RunKey}
-import orca.testkit.GitRepo
+import orca.testkit.{Effects, GitRepo}
 
 class WorktreeRunTest extends munit.FunSuite:
 
   private val worktreeRun =
-    WorktreeRun(Processes.ambient, FileSystem.ambient, FlowLock)
+    WorktreeRun(Effects.procs, Effects.fs, FlowLock)
 
   test("resolving is refused while a live process holds the worktree lock"):
     val repo = GitRepo.seeded()

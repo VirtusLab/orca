@@ -1,7 +1,7 @@
 package orca.backend.gemini
 
-import orca.effect.{FileSystem, Network}
-import orca.testkit.OpenTurn
+import orca.effect.Network
+import orca.testkit.{Effects, OpenTurn}
 import orca.backend.{SupervisedBackend, SystemPromptComposer}
 import orca.agents.{
   TurnDispatch,
@@ -34,7 +34,7 @@ class GeminiBackendTest extends munit.FunSuite:
   ): T = SupervisedBackend.using(
     new GeminiBackend(
       Network.ambient,
-      FileSystem.ambient,
+      Effects.fs,
       runner,
       workDir = workDir
     )
@@ -340,7 +340,7 @@ class GeminiBackendTest extends munit.FunSuite:
     )
     val stub = new StubCliRunner(CliResult(0, listOutput, ""))
     SupervisedBackend.using(
-      new GeminiBackend(Network.ambient, FileSystem.ambient, stub, os.pwd)
+      new GeminiBackend(Network.ambient, Effects.fs, stub, os.pwd)
     ): backend =>
       backend.sessions.rehydrate(clientForProbe, serverForProbe)
       assertEquals(
@@ -361,7 +361,7 @@ class GeminiBackendTest extends munit.FunSuite:
     val workDir = TempDirs.dir()
     val stub = new StubCliRunner(CliResult(0, serverForProbe.value, ""))
     SupervisedBackend.using(
-      new GeminiBackend(Network.ambient, FileSystem.ambient, stub, workDir)
+      new GeminiBackend(Network.ambient, Effects.fs, stub, workDir)
     ): backend =>
       backend.sessions.rehydrate(clientForProbe, serverForProbe)
       val _ = backend.sessions.dispatchFor(clientForProbe)
@@ -375,7 +375,7 @@ class GeminiBackendTest extends munit.FunSuite:
     val stub =
       new StubCliRunner(CliResult(0, "client-uuid  2024-01-01T00:00:00", ""))
     SupervisedBackend.using(
-      new GeminiBackend(Network.ambient, FileSystem.ambient, stub, os.pwd)
+      new GeminiBackend(Network.ambient, Effects.fs, stub, os.pwd)
     ): backend =>
       assertEquals(
         backend.sessions.dispatchFor(clientForProbe).asTurnDispatch,
@@ -388,7 +388,7 @@ class GeminiBackendTest extends munit.FunSuite:
     val stub =
       new StubCliRunner(CliResult(0, "sess-other  2024-01-01T00:00:00", ""))
     SupervisedBackend.using(
-      new GeminiBackend(Network.ambient, FileSystem.ambient, stub, os.pwd)
+      new GeminiBackend(Network.ambient, Effects.fs, stub, os.pwd)
     ): backend =>
       backend.sessions.rehydrate(clientForProbe, serverForProbe)
       assertEquals(
@@ -401,7 +401,7 @@ class GeminiBackendTest extends munit.FunSuite:
   ):
     val stub = new StubCliRunner(CliResult(1, "sess-abc-123", ""))
     SupervisedBackend.using(
-      new GeminiBackend(Network.ambient, FileSystem.ambient, stub, os.pwd)
+      new GeminiBackend(Network.ambient, Effects.fs, stub, os.pwd)
     ): backend =>
       backend.sessions.rehydrate(clientForProbe, serverForProbe)
       assertEquals(
@@ -420,7 +420,7 @@ class GeminiBackendTest extends munit.FunSuite:
           cwd: os.Path
       ): CliResult = throw new RuntimeException("binary not found")
     SupervisedBackend.using(
-      new GeminiBackend(Network.ambient, FileSystem.ambient, stub, os.pwd)
+      new GeminiBackend(Network.ambient, Effects.fs, stub, os.pwd)
     ): backend =>
       backend.sessions.rehydrate(clientForProbe, serverForProbe)
       assertEquals(

@@ -2,7 +2,7 @@ package orca.review
 
 import orca.OrcaDir
 import orca.effect.{FileSystem, Processes}
-import orca.safe.concurrency.resourceScope
+import orca.concurrency.resourceScope
 import orca.subprocess.CliResult
 
 /** Runs the format and lint gates' commands, and spills lint output where the

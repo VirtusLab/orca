@@ -2,7 +2,6 @@ package orca.lifecycle
 
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import orca.StackSettings
-import orca.effect.{FileSystem, Processes}
 import orca.subprocess.PathProbe
 import orca.json.JsonData
 import orca.settings.{
@@ -13,11 +12,11 @@ import orca.settings.{
   StackKey,
   StackValue
 }
-import orca.testkit.TempDirs
+import orca.testkit.{Effects, TempDirs}
 
 class StackDiscoveryTest extends munit.FunSuite:
 
-  private val onPath = PathProbe.resolves(Processes.ambient, _, _)
+  private val onPath = PathProbe.resolves(Effects.procs, _, _)
 
   private def command(raw: String): StackCommand =
     StackValue.parse(raw) match
@@ -434,12 +433,12 @@ class StackDiscoveryTest extends munit.FunSuite:
   test("evidenceExists: a present repo-relative file is accepted"):
     val dir = TempDirs.dir()
     os.write(dir / "Cargo.toml", "[package]\n")
-    assert(StackDiscovery.evidenceExists(FileSystem.ambient, "Cargo.toml", dir))
+    assert(StackDiscovery.evidenceExists(Effects.fs, "Cargo.toml", dir))
 
   test("evidenceExists: a missing repo-relative file is rejected"):
     assert(
       !StackDiscovery.evidenceExists(
-        FileSystem.ambient,
+        Effects.fs,
         "Cargo.toml",
         TempDirs.dir()
       )
@@ -449,10 +448,10 @@ class StackDiscoveryTest extends munit.FunSuite:
     val dir = TempDirs.dir()
     os.write(dir / "real.txt", "x")
     assert(
-      !StackDiscovery.evidenceExists(FileSystem.ambient, "../escape.txt", dir)
+      !StackDiscovery.evidenceExists(Effects.fs, "../escape.txt", dir)
     )
     assert(
-      !StackDiscovery.evidenceExists(FileSystem.ambient, "/etc/passwd", dir)
+      !StackDiscovery.evidenceExists(Effects.fs, "/etc/passwd", dir)
     )
 
   test("startMessage: absent/blank file names the missing file"):

@@ -95,7 +95,7 @@ private[orca] final class Worktrees(procs: Processes, fs: FileSystem):
       case None => Left(MainCheckoutFailure.NotARepository)
       case Some(List(gitDir, commonDir, topLevel)) =>
         if gitDir == commonDir then
-          absolute(topLevel).toRight(MainCheckoutFailure.Unsupported)
+          absolutePath(topLevel).toRight(MainCheckoutFailure.Unsupported)
         // Creating worktrees under a git directory would write a checkout
         // inside the repository's own metadata store, so a candidate that is
         // not itself a checkout is refused rather than written to.
@@ -114,7 +114,7 @@ private[orca] final class Worktrees(procs: Processes, fs: FileSystem):
     probe(cwd, "worktree", "list", "--porcelain").toList
       .flatMap(_.linesIterator)
       .flatMap:
-        case Worktrees.WorktreeLine(path) => absolute(path)
+        case Worktrees.WorktreeLine(path) => absolutePath(path)
         case _                            => None
 
   /** Create a worktree at `path`, detached at `cwd`'s current HEAD.
@@ -196,14 +196,6 @@ private[orca] final class Worktrees(procs: Processes, fs: FileSystem):
       ref,
       "HEAD"
     ).exitCode != 0
-
-  /** Git prints absolute paths for both reads above; anything else means the
-    * command did not do what was asked, which is "not known" rather than a
-    * failure to raise at a caller that has nowhere to put one — `absolutePath`
-    * throws on a relative or empty string.
-    */
-  private def absolute(path: String): Option[os.Path] =
-    Option.when(path.startsWith("/"))(absolutePath(path))
 
   private def git(cwd: os.Path, args: String*): CliResult =
     procs.call("git" +: args, cwd = cwd, env = OsGitTool.nonInteractiveEnv)

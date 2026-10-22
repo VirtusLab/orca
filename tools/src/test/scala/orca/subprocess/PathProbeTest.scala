@@ -1,9 +1,9 @@
 package orca.subprocess
 
-import orca.testkit.TempDirs
+import orca.testkit.{Effects, TempDirs}
 
 class PathProbeTest extends munit.FunSuite:
-  private val procs = orca.effect.Processes.ambient
+  private val procs = Effects.procs
 
   test("resolves: a word on PATH resolves"):
     assert(PathProbe.resolves(procs, "bash", os.pwd))

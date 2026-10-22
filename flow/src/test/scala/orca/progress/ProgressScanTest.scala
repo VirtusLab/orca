@@ -1,10 +1,9 @@
 package orca.progress
 
-import orca.effect.FileSystem
 import munit.FunSuite
 import orca.{RunKey, WorkspaceWrite}
 import orca.gitref.CommitHash
-import orca.testkit.{TempDirs, branchName}
+import orca.testkit.{Effects, TempDirs, branchName}
 
 class ProgressScanTest extends FunSuite:
 
@@ -23,7 +22,7 @@ class ProgressScanTest extends FunSuite:
 
   test("progressLogPaths is empty when .orca doesn't exist"):
     assertEquals(
-      ProgressScan(orca.effect.FileSystem.ambient)
+      ProgressScan(Effects.fs)
         .progressLogPaths(TempDirs.dir()),
       Nil
     )
@@ -31,7 +30,7 @@ class ProgressScanTest extends FunSuite:
   test("progressLogPaths lists only *.progress.json files under .orca/runs"):
     val workDir = TempDirs.dir()
     val store =
-      ProgressStore.default(FileSystem.ambient, workDir, RunKey.of("my prompt"))
+      ProgressStore.default(Effects.fs, workDir, RunKey.of("my prompt"))
     store.writeHeader(header)
     List(
       "abc123def456.other.json", // another document
@@ -40,21 +39,21 @@ class ProgressScanTest extends FunSuite:
     ).foreach(name => os.write(workDir / ".orca" / "runs" / name, "{}"))
     os.write(workDir / ".orca" / "settings.properties", "")
     assertEquals(
-      ProgressScan(orca.effect.FileSystem.ambient).progressLogPaths(workDir),
+      ProgressScan(Effects.fs).progressLogPaths(workDir),
       List(store.path)
     )
 
   test("progressLogPaths excludes a symlinked log file"):
     val workDir = TempDirs.dir()
     val store =
-      ProgressStore.default(FileSystem.ambient, workDir, RunKey.of("my prompt"))
+      ProgressStore.default(Effects.fs, workDir, RunKey.of("my prompt"))
     store.writeHeader(header)
     val outside = TempDirs.dir() / "elsewhere.json"
     os.write(outside, "{}")
     os.remove(store.path): Unit
     os.symlink(store.path, outside)
     assertEquals(
-      ProgressScan(orca.effect.FileSystem.ambient).progressLogPaths(workDir),
+      ProgressScan(Effects.fs).progressLogPaths(workDir),
       Nil
     )
 
@@ -62,11 +61,11 @@ class ProgressScanTest extends FunSuite:
     val workDir = TempDirs.dir()
     val real = TempDirs.dir()
     ProgressStore
-      .default(FileSystem.ambient, real, RunKey.of("my prompt"))
+      .default(Effects.fs, real, RunKey.of("my prompt"))
       .writeHeader(header)
     os.symlink(workDir / ".orca", real / ".orca")
     assertEquals(
-      ProgressScan(orca.effect.FileSystem.ambient).progressLogPaths(workDir),
+      ProgressScan(Effects.fs).progressLogPaths(workDir),
       Nil
     )
 
@@ -74,12 +73,12 @@ class ProgressScanTest extends FunSuite:
     val workDir = TempDirs.dir()
     val real = TempDirs.dir()
     ProgressStore
-      .default(FileSystem.ambient, real, RunKey.of("my prompt"))
+      .default(Effects.fs, real, RunKey.of("my prompt"))
       .writeHeader(header)
     os.makeDir.all(workDir / ".orca")
     os.symlink(workDir / ".orca" / "runs", real / ".orca" / "runs")
     assertEquals(
-      ProgressScan(orca.effect.FileSystem.ambient).progressLogPaths(workDir),
+      ProgressScan(Effects.fs).progressLogPaths(workDir),
       Nil
     )
 
@@ -88,42 +87,42 @@ class ProgressScanTest extends FunSuite:
     // the readable log beside it (an empty scan reads as "no runs in flight").
     val workDir = TempDirs.dir()
     val store =
-      ProgressStore.default(FileSystem.ambient, workDir, RunKey.of("my prompt"))
+      ProgressStore.default(Effects.fs, workDir, RunKey.of("my prompt"))
     store.writeHeader(header)
     os.makeDir.all(workDir / ".orca" / "runs" / "000000000000.progress.json")
     assertEquals(
-      ProgressScan(orca.effect.FileSystem.ambient).progressLogPaths(workDir),
+      ProgressScan(Effects.fs).progressLogPaths(workDir),
       List(store.path)
     )
 
   test("progressLogs pairs every readable log with its header"):
     val workDir = TempDirs.dir()
     val store =
-      ProgressStore.default(FileSystem.ambient, workDir, RunKey.of("my prompt"))
+      ProgressStore.default(Effects.fs, workDir, RunKey.of("my prompt"))
     store.writeHeader(header)
     val corrupt = ProgressStore.default(
-      FileSystem.ambient,
+      Effects.fs,
       workDir,
       RunKey.of("corrupt prompt")
     )
     corrupt.writeHeader(header)
     os.write.over(corrupt.path, "not json {{{")
     assertEquals(
-      ProgressScan(orca.effect.FileSystem.ambient).progressLogs(workDir),
+      ProgressScan(Effects.fs).progressLogs(workDir),
       List(ScannedProgressLog(store.path, header))
     )
 
   test("progressLogPaths lists every log, not just one"):
     val workDir = TempDirs.dir()
     val one =
-      ProgressStore.default(FileSystem.ambient, workDir, RunKey.of("one"))
+      ProgressStore.default(Effects.fs, workDir, RunKey.of("one"))
     one.writeHeader(header)
     val two =
-      ProgressStore.default(FileSystem.ambient, workDir, RunKey.of("two"))
+      ProgressStore.default(Effects.fs, workDir, RunKey.of("two"))
     two.writeHeader(header)
     // As a Set: `os.list` order is unspecified, and the scan promises none.
     assertEquals(
-      ProgressScan(orca.effect.FileSystem.ambient)
+      ProgressScan(Effects.fs)
         .progressLogPaths(workDir)
         .toSet,
       Set(one.path, two.path)

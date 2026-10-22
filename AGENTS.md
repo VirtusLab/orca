@@ -6,8 +6,9 @@ orca live in [CONTRIBUTING.md](CONTRIBUTING.md); end-user documentation at
 [orca.virtuslab.com](https://orca.virtuslab.com) (source in `docs/`).
 
 Orca is implemented in Scala 3 on top of [Ox](https://ox.softwaremill.com/)
-for structured concurrency, [tapir](https://tapir.softwaremill.com/) for
-JSON Schema derivation, and
+for structured concurrency, [tapir](https://tapir.softwaremill.com/)'s
+schema model to describe and render JSON Schema (derived by
+`orca.json.SchemaDerivation`, in `core`), and
 [jsoniter-scala](https://github.com/plokhotnyuk/jsoniter-scala) for codec
 generation.
 
@@ -77,8 +78,8 @@ plain (wiring, terminal, logging, file locks). `core` is the trusted base, and t
   `ambient` mint is `private[orca]` and not `@assumeSafe`, so only wiring and
   tests create one.
 - Facades over libraries safe code can't reference: `orca.safe.{prelude,
-  Logger, concurrency, mcp, Ref}`, `orca.json.{JsonData, JsonCodec,
-  JsonSchemas}`.
+  Logger}`, `orca.concurrency` (with `Ref`), `orca.mcp`, `orca.json.{JsonData,
+  JsonCodec, JsonSchemas}`.
   Safe code uses `derives JsonCodec` where plain code uses `derives
   ConfiguredJsonValueCodec`.
 - Effect implementations (`QuietProc`, `OsPipedSubProcess`, `LocalServer`,
@@ -458,7 +459,7 @@ with a test pinning the observed wire shape.
   state. Mutable state whose updates also write to the terminal or files lives
   in an actor; other mutable state stays in method bodies, or, when shared
   across threads, in an `AtomicReference` over an immutable value updated by a
-  pure function (`CostTracker`, `DeniedToolTracker`) — `orca.safe.Ref` in safe
+  pure function (`CostTracker`, `DeniedToolTracker`) — `orca.concurrency.Ref` in safe
   modules. Safe mode rejects `var` fields, so there an actor's state, and
   state confined to one thread (`StageFrames`), is a `Ref` too. Never `caps.SharedCapability` + `caps.Stateful` for it: that tracks
   nothing. `@volatile` and `synchronized` still compile in safe mode, so review
@@ -631,8 +632,8 @@ number, change it only additively (ADR 0025).
   [ADR 0010](adr/0010-prompts-and-helpers-convention.md): sibling
   `XxxPrompts` object + `instructions: String = …` parameter.
 - Subprocesses launched from a tool **must** capture stderr — go through
-  [`effect.Processes`](core/src/main/scala/orca/effect/Processes.scala)
-  or a `CliRunner`. os-lib defaults `os.proc(...).call(...)`'s `stderr` to
+  [`effect.Processes`](core/src/main/scala/orca/effect/Processes.scala),
+  a `CliRunner`, or `QuietProc` in plain modules (runner/shell). os-lib defaults `os.proc(...).call(...)`'s `stderr` to
   `Inherit`, which lets subprocess output bypass the renderer's StatusBar
   and tear the spinner row. `CliRunner.spawnPiped` always pipes stderr, so
   its caller must drain `stderrLines` as well as `stdoutLines`. Raw `os.proc`
@@ -640,8 +641,8 @@ number, change it only additively (ADR 0025).
   run, agent session) and `TtyProbe`, which inherits the fd it probes.
 - Every `spawnPiped` child carries a unique `ORCA_TURN_COOKIE`
   (`orca.subprocess.EnvCookie`). `SubprocessSpawn.open` registers `EnvCookieSweep`
-  with the turn scope, so at turn end it asks `CliRunner.carrying` (a
-  `/proc/*/environ` scan) for the agent's cookie and REPORTS what is still
+  with the turn scope, so at turn end it asks the process's `survivors()` (a
+  `/proc/*/environ` scan) for what carries the agent's cookie and REPORTS what is still
   running — the backstop for work an
   agent detached from orca's process tree, which no parent-link teardown can
   reach. opencode's turns spawn nothing (they run on the per-run server), so
@@ -656,8 +657,9 @@ number, change it only additively (ADR 0025).
   `OrcaDir.OrcaFile` (only `OrcaDir` creates one) and its `replace`, whose
   rename replaces a leaf symlink instead of following it. Other writes (appends,
   lock files) go inside a directory an `OrcaDir.ensure*` accessor returned, with
-  `os.write` (`CREATE_NEW`, refuses a leaf symlink) over `os.write.over`; a lock
-  file opens with `NOFOLLOW_LINKS`. The
+  `fs.writeNew` (`CREATE_NEW`, refuses a leaf symlink) over `fs.writeOver`
+  (plain modules: `os.write` over `os.write.over`); a lock file opens with
+  `NOFOLLOW_LINKS`. The
   check runs at the earliest `.orca` touch (`FlowLock` → `ensureCache`), ahead
   of any mutation.
 

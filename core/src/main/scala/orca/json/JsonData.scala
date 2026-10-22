@@ -8,10 +8,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
   JsonValueCodec,
   JsonWriter
 }
-import com.github.plokhotnyuk.jsoniter_scala.macros.{
-  CodecMakerConfig,
-  JsonCodecMaker
-}
+import com.github.plokhotnyuk.jsoniter_scala.macros.CodecMakerConfig
 import sttp.tapir.Schema
 
 import scala.compiletime.{erasedValue, summonFrom}
@@ -132,15 +129,15 @@ object JsonData:
   // reference the very instance being initialised (causing an infinite loop).
 
   given stringJsonData: JsonData[String] =
-    apply(Schema.schemaForString, JsonCodec.wrap(JsonCodecMaker.make))
+    apply(Schema.schemaForString, JsonCodec.derived)
   given intJsonData: JsonData[Int] =
-    apply(Schema.schemaForInt, JsonCodec.wrap(JsonCodecMaker.make))
+    apply(Schema.schemaForInt, JsonCodec.derived)
   given longJsonData: JsonData[Long] =
-    apply(Schema.schemaForLong, JsonCodec.wrap(JsonCodecMaker.make))
+    apply(Schema.schemaForLong, JsonCodec.derived)
   given booleanJsonData: JsonData[Boolean] =
-    apply(Schema.schemaForBoolean, JsonCodec.wrap(JsonCodecMaker.make))
+    apply(Schema.schemaForBoolean, JsonCodec.derived)
   given doubleJsonData: JsonData[Double] =
-    apply(Schema.schemaForDouble, JsonCodec.wrap(JsonCodecMaker.make))
+    apply(Schema.schemaForDouble, JsonCodec.derived)
 
   /** Unit serialises as `{}`, a valid round-trippable "no meaningful payload"
     * value. `JsonCodecMaker` doesn't support `Unit`, so the codec is hand-
@@ -167,12 +164,12 @@ object JsonData:
     given JsonValueCodec[A] = jd.codec
     apply(
       Schema.schemaForOption(using jd.schema),
-      JsonCodec.wrap(JsonCodecMaker.make)
+      JsonCodec.derived
     )
 
   given [A](using jd: JsonData[A]): JsonData[List[A]] =
     given JsonValueCodec[A] = jd.codec
-    apply(listSchema(using jd.schema), JsonCodec.wrap(JsonCodecMaker.make))
+    apply(listSchema(using jd.schema), JsonCodec.derived)
 
   // Inline so the schema is named after the concrete element types.
   inline given [A, B](using
@@ -195,7 +192,7 @@ object JsonData:
   ): JsonData[(A, B)] =
     given JsonValueCodec[A] = jdA.codec
     given JsonValueCodec[B] = jdB.codec
-    apply(schema, JsonCodec.wrap(JsonCodecMaker.make))
+    apply(schema, JsonCodec.derived)
 
   private def tuple3[A, B, C](
       schema: Schema[(A, B, C)],
@@ -206,7 +203,7 @@ object JsonData:
     given JsonValueCodec[A] = jdA.codec
     given JsonValueCodec[B] = jdB.codec
     given JsonValueCodec[C] = jdC.codec
-    apply(schema, JsonCodec.wrap(JsonCodecMaker.make))
+    apply(schema, JsonCodec.derived)
 
 @assumeSafe
 given schemaFromJsonData[A](using jd: JsonData[A]): Schema[A] = jd.schema

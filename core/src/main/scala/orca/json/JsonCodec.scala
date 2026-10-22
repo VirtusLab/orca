@@ -54,7 +54,7 @@ object JsonCodec:
     caps.unsafe.unsafeAssumePure(IArray.unsafeFromArray(writeToArray(a)))
 
   /** `codec` as a [[JsonCodec]]. */
-  def wrap[A](codec: JsonValueCodec[A]): JsonCodec[A] =
+  private[json] def wrap[A](codec: JsonValueCodec[A]): JsonCodec[A] =
     new JsonCodec[A]:
       def decodeValue(in: JsonReader, default: A): A =
         codec.decodeValue(in, default)

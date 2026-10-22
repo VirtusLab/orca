@@ -198,8 +198,7 @@ private[lifecycle] object StackDiscovery:
       path: String,
       workDir: os.Path
   ): Boolean =
-    try fs.exists(workDir / subPath(path))
-    catch case _: IllegalArgumentException => false
+    subPath(path).exists(p => fs.exists(workDir / p))
 
   /** Assemble the agent's `result` into settings-file entries plus the
     * [[StackSettings]] the run uses. The two mechanical checks are injected as

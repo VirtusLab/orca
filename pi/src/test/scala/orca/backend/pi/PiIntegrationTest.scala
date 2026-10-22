@@ -8,9 +8,8 @@ import orca.agents.{
   ToolSet,
   onWire
 }
-import orca.effect.{FileSystem, Processes}
 import orca.subprocess.OsProcCliRunner
-import orca.testkit.TempDirs
+import orca.testkit.{Effects, TempDirs}
 
 import java.time.Instant
 
@@ -29,10 +28,10 @@ class PiIntegrationTest extends munit.FunSuite:
 
   /** Built the way `PiAgents.default` builds it. */
   private def realBackend(workDir: os.Path): PiBackend =
-    val fs = FileSystem.ambient
+    val fs = Effects.fs
     PiBackend.create(
       fs,
-      OsProcCliRunner(Processes.ambient),
+      OsProcCliRunner(Effects.procs),
       PiBackend.transcriptProbe(fs, () => Instant.now()),
       workDir,
       Instant.now()

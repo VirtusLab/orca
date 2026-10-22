@@ -1,6 +1,5 @@
 package orca
 
-import orca.effect.FileSystem
 import orca.agents.{Agent, BackendTag}
 import orca.events.EventDispatcher
 import orca.progress.{BranchMode, ProgressHeader, ProgressStore}
@@ -36,7 +35,7 @@ object TestRun:
     val dir = GitRepo.seeded()
     val git = Effects.gitTool(dir)
     val runKey = RunKey.of(userPrompt)
-    val store = ProgressStore.default(FileSystem.ambient, dir, runKey)
+    val store = ProgressStore.default(Effects.fs, dir, runKey)
     given WorkspaceWrite = WorkspaceWrite.unsafe
     // The seed commit stands in for the commit a real run binds at.
     val headCommit = git.headCommit().get

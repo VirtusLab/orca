@@ -44,6 +44,10 @@ useReadableConsoleGit
 lazy val buildVersionProperty =
   Def.setting("-Dorca.build.version=" + version.value)
 
+// The Scala version flow scripts pin, for tests that check or use the pin.
+lazy val scalaVersionProperty =
+  Def.setting("-Dorca.build.scalaVersion=" + scalaVersion.value)
+
 // sbt 2 runs forked tests through its own worker, so `java.class.path` in the
 // test JVM holds only that worker's jars. Tests that start a compiler or a
 // child JVM on the Test classpath read it from this property instead.
@@ -108,6 +112,10 @@ lazy val safeMode = Seq(
 lazy val core = (project in file("core"))
   .settings(
     name := "orca-core",
+    // NetworkTest asserts no Netty threads outlive its server, so no other
+    // suite may run one at the same time.
+    Test / parallelExecution := false,
+    Test / javaOptions += testClasspathProperty.value,
     libraryDependencies ++= Seq(
       osLib,
       jsoniter,
@@ -119,7 +127,8 @@ lazy val core = (project in file("core"))
       sttpApispecCirce,
       // The `mcp` facade.
       chimp,
-      slf4j
+      slf4j,
+      scala3Compiler
     )
   )
 
@@ -128,21 +137,15 @@ lazy val tools = (project in file("tools"))
   .settings(safeMode*)
   .settings(
     name := "orca-tools",
-    Test / javaOptions += testClasspathProperty.value,
     libraryDependencies ++= Seq(
       osLib,
       jsoniter,
       jsoniterMacros,
-      tapirApispec,
-      sttpApispecCirce,
       ox,
       jsonSchemaValidator,
-      // The shared MCP server (orca.backend.mcp.AskUserMcpServer) is consumed
-      // by the claude, codex and gemini backends, so chimp-server lives here —
-      // tools already hosts the cross-backend orca.backend package — rather
-      // than in any single backend module.
-      chimp,
-      scala3Compiler
+      // The MCP servers (`orca.backend.mcp`) use chimp's result types beside
+      // core's `orca.mcp` facade.
+      chimp
     )
   )
 
@@ -200,12 +203,17 @@ lazy val flow = (project in file("flow"))
   .settings(
     name := "orca-flow",
     Test / javaOptions += testClasspathProperty.value,
+    // Not `logback-test.xml`: through `flow % "test->test"` that would
+    // override runner's own logback.xml in runner's tests.
+    Test / javaOptions += "-Dlogback.configurationFile=flow-logback-test.xml",
     libraryDependencies ++= Seq(
       ox,
       jsoniterMacros,
       jsonSchemaValidator,
       scala3Compiler,
-      munitScalacheck
+      munitScalacheck,
+      // Lets tests capture what orca logs.
+      logback % Test
     )
   )
 
@@ -249,6 +257,7 @@ lazy val runner = (project in file("runner"))
     // semantics the guard exists to enforce.
     Test / parallelExecution := false,
     Test / javaOptions += buildVersionProperty.value,
+    Test / javaOptions += scalaVersionProperty.value,
     Test / javaOptions += testClasspathProperty.value,
     // `flow(...)` resolves the global settings file and reviewer directory from
     // the config home, so the tests here that drive it would otherwise read —
@@ -303,15 +312,17 @@ lazy val shell = (project in file("shell"))
     // concurrently running suite observes the temporarily-ignored handler —
     // the same isolation runner uses for its lock and logger state.
     Test / parallelExecution := false,
+    Test / javaOptions += scalaVersionProperty.value,
     // The shell's own version (`OrcaBuild.current`), as a resource rather than
     // the jar manifest, so a class-directory run (tests, `sbt shell/run`) knows
     // it too — the same version a `publishLocal` in the same sbt session
-    // publishes.
+    // publishes. Next to it, the Scala version flows pin
+    // (`OrcaBuild.scalaVersion`).
     Compile / resourceGenerators += Def.task {
-      val file =
-        (Compile / resourceManaged).value / "orca" / "shell" / "version"
-      IO.write(file, version.value)
-      Seq(file)
+      val dir = (Compile / resourceManaged).value / "orca" / "shell"
+      IO.write(dir / "version", version.value)
+      IO.write(dir / "scala-version", scalaVersion.value)
+      Seq(dir / "version", dir / "scala-version")
     }.taskValue,
     // Bundles the top-level flows/*.sc scripts as jar resources under
     // orca/shell/flows/ (ADR 0021 §7), so `BuiltInFlows` can extract them to a

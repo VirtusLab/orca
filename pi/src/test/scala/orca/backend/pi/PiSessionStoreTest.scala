@@ -1,13 +1,12 @@
 package orca.backend.pi
 
-import orca.effect.FileSystem
-import orca.testkit.TempDirs
+import orca.testkit.{Effects, TempDirs}
 
 import java.time.Instant
 
 class PiSessionStoreTest extends munit.FunSuite:
 
-  private val store = PiSessionStore(FileSystem.ambient)
+  private val store = PiSessionStore(Effects.fs)
 
   test(
     "dirFor places a session under .orca/cache/pi-sessions, creating nothing"

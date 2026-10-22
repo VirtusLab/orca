@@ -4,7 +4,7 @@ import orca.AgentSet
 import orca.agents.Agent
 import orca.review.ReviewerPrompts
 import orca.settings.{AgentSettings, AgentSpec}
-import orca.safe.concurrency.releaseAfterScope
+import orca.concurrency.releaseAfterScope
 import orca.safe.prelude.tap
 import ox.ResourceScope
 

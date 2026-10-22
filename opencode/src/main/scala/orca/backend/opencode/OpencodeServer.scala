@@ -5,7 +5,7 @@ import orca.events.OrcaListener
 import orca.subprocess.{CliRunner, PipedCliProcess}
 import orca.backend.EnvCookieSweep
 import orca.safe.Logger
-import orca.safe.concurrency.{
+import orca.concurrency.{
   bufferedChannel,
   fork,
   forkDiscard,

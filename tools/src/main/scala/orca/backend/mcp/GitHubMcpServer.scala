@@ -2,7 +2,7 @@ package orca.backend.mcp
 
 import orca.effect.Network
 import orca.json.JsonData
-import orca.safe.mcp
+import orca.mcp
 import orca.tools.{Comment, GitHubTool, Issue, IssueHandle}
 import ox.Ox
 import orca.safe.prelude.DurationInt

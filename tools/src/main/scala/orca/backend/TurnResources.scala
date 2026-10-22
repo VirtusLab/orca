@@ -1,7 +1,7 @@
 package orca.backend
 
 import orca.safe.Logger
-import orca.safe.concurrency.useInScope
+import orca.concurrency.useInScope
 import orca.safe.prelude.NonFatal
 import ox.ResourceScope
 

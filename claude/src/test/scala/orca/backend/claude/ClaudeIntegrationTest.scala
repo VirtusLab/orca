@@ -1,6 +1,6 @@
 package orca.backend.claude
 
-import orca.effect.{FileSystem, Network, Processes}
+import orca.effect.Network
 import orca.testkit.OpenTurn
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
@@ -14,7 +14,7 @@ import orca.agents.{
 }
 import orca.backend.{TurnEvent, Dispatch, SupervisedBackend}
 import orca.subprocess.OsProcCliRunner
-import orca.testkit.{GitRepo, TempDirs}
+import orca.testkit.{Effects, GitRepo, TempDirs}
 import orca.tools.OsGitTool
 import orca.backend.claude.streamjson.OutboundMessage
 
@@ -35,8 +35,8 @@ class ClaudeIntegrationTest extends munit.FunSuite:
 
   /** Over the real CLI and its real transcript directory. */
   private def realBackend(workDir: os.Path): ClaudeBackend =
-    val fs = FileSystem.ambient
-    val procs = Processes.ambient
+    val fs = Effects.fs
+    val procs = Effects.procs
     new ClaudeBackend(
       Network.ambient,
       fs,

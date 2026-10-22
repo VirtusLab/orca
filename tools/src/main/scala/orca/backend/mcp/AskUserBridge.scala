@@ -1,6 +1,6 @@
 package orca.backend.mcp
 
-import orca.safe.concurrency
+import orca.concurrency
 import orca.safe.prelude.discard
 import ox.channels.{BufferCapacity, Channel}
 

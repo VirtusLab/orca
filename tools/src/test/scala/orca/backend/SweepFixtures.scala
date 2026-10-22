@@ -1,6 +1,7 @@
 package orca.backend
 
-import orca.effect.Processes
+import orca.testkit.Effects
+
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.subprocess.{CliRunner, CookieScan, OsProcCliRunner, PipedCliProcess}
 
@@ -19,7 +20,7 @@ trait SweepFixtures:
     if CookieScan.supported then test(name)(body)
     else test(name.ignore)(body)
 
-  protected val runner: CliRunner = OsProcCliRunner(Processes.ambient)
+  protected val runner: CliRunner = OsProcCliRunner(Effects.procs)
 
   protected def spawn(script: String): PipedCliProcess =
     runner.spawnPiped(

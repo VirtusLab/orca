@@ -1,7 +1,7 @@
 package orca.backend.codex
 
-import orca.effect.{FileSystem, Network}
-import orca.testkit.OpenTurn
+import orca.effect.Network
+import orca.testkit.{Effects, OpenTurn}
 import orca.backend.{SupervisedBackend, SystemPromptComposer}
 import orca.agents.{
   TurnDispatch,
@@ -29,7 +29,7 @@ class CodexBackendTest extends munit.FunSuite:
   ): T = SupervisedBackend.using(
     new CodexBackend(
       Network.ambient,
-      FileSystem.ambient,
+      Effects.fs,
       runner,
       sessionProbe = _ => false,
       workDir = workDir
@@ -483,9 +483,9 @@ class CodexBackendTest extends munit.FunSuite:
     SupervisedBackend.using(
       new CodexBackend(
         Network.ambient,
-        FileSystem.ambient,
+        Effects.fs,
         new SpawnStubCliRunner(Nil),
-        CodexBackend.rolloutProbe(FileSystem.ambient, tmpSessions),
+        CodexBackend.rolloutProbe(Effects.fs, tmpSessions),
         workDir = os.pwd
       )
     ): backend =>
@@ -509,9 +509,9 @@ class CodexBackendTest extends munit.FunSuite:
     SupervisedBackend.using(
       new CodexBackend(
         Network.ambient,
-        FileSystem.ambient,
+        Effects.fs,
         new SpawnStubCliRunner(Nil),
-        CodexBackend.rolloutProbe(FileSystem.ambient, tmpSessions),
+        CodexBackend.rolloutProbe(Effects.fs, tmpSessions),
         workDir = os.pwd
       )
     ): backend =>
@@ -525,9 +525,9 @@ class CodexBackendTest extends munit.FunSuite:
     SupervisedBackend.using(
       new CodexBackend(
         Network.ambient,
-        FileSystem.ambient,
+        Effects.fs,
         new SpawnStubCliRunner(Nil),
-        CodexBackend.rolloutProbe(FileSystem.ambient, tmpSessions),
+        CodexBackend.rolloutProbe(Effects.fs, tmpSessions),
         workDir = os.pwd
       )
     ): backend =>
@@ -545,9 +545,9 @@ class CodexBackendTest extends munit.FunSuite:
     SupervisedBackend.using(
       new CodexBackend(
         Network.ambient,
-        FileSystem.ambient,
+        Effects.fs,
         new SpawnStubCliRunner(Nil),
-        CodexBackend.rolloutProbe(FileSystem.ambient, missing),
+        CodexBackend.rolloutProbe(Effects.fs, missing),
         workDir = os.pwd
       )
     ): backend =>

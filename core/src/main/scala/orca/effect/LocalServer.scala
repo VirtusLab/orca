@@ -26,7 +26,7 @@ private[effect] object LocalServer:
     // tapir's own group waits out a 2s shutdown quiet period, twice per stop.
     val group = useInScope(
       MultiThreadIoEventLoopGroup(1, NioIoHandler.newFactory())
-    )(_.shutdownGracefully(0, 2, TimeUnit.SECONDS).get(): Unit)
+    )(shutdown)
     // tapir's `start()` leaves teardown to the caller, and a leaked binding
     // strands its event-loop threads for the life of the JVM.
     val binding = useInScope(
@@ -48,3 +48,12 @@ private[effect] object LocalServer:
       try b.stop()
       catch case NonFatal(e) => log.warn("local server stop failed", e)
     binding.port
+
+  // Uninterruptible: the wait is bounded by the 2s timeout, and an interrupted
+  // scope teardown would otherwise leave the event-loop thread running.
+  private def shutdown(group: MultiThreadIoEventLoopGroup): Unit =
+    try
+      group
+        .shutdownGracefully(0, 2, TimeUnit.SECONDS)
+        .syncUninterruptibly(): Unit
+    catch case NonFatal(e) => log.warn("local server shutdown failed", e)

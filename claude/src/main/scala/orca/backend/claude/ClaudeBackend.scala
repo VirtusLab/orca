@@ -31,7 +31,7 @@ import orca.backend.mcp.{
 import orca.effect.{FileSystem, Network}
 import orca.tools.{GitTool, OsGitHubTool}
 import orca.backend.claude.streamjson.OutboundMessage
-import orca.safe.concurrency.defaultBufferCapacity
+import orca.concurrency.defaultBufferCapacity
 import orca.safe.prelude.given
 import ox.{Ox, ResourceScope}
 

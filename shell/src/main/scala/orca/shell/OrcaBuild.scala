@@ -49,3 +49,7 @@ private[shell] object OrcaBuild:
   /** This shell's build, from the version resource `build.sbt` generates. */
   lazy val current: OrcaBuild =
     of(PromptResource.load("/orca/shell/version").trim)
+
+  /** The Scala version flow scripts pin: the one orca is built with. */
+  lazy val scalaVersion: String =
+    PromptResource.load("/orca/shell/scala-version").trim

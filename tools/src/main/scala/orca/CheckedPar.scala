@@ -3,8 +3,6 @@ package orca
 import language.experimental.captureChecking
 import language.experimental.separationChecking
 
-import orca.safe.concurrency
-
 /** The capture-checked concurrency funnel: orca's internal parallel fan-outs go
   * through here rather than calling Ox's combinators directly, so separation
   * checking can enforce the [[InStage]]/[[WorkspaceWrite]] capability split at

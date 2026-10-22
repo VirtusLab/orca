@@ -1,4 +1,4 @@
-package orca.safe
+package orca.concurrency
 
 import language.experimental.captureChecking
 

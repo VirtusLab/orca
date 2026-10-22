@@ -4,8 +4,8 @@ import orca.AgentTurnFailed
 import orca.backend.{Interaction, AgentBackend}
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.json.JsonData
-import orca.safe.concurrency
-import orca.safe.concurrency.retry
+import orca.concurrency
+import orca.concurrency.retry
 
 /** Structured-output gateway — obtained via `agent.resultAs[O]`. Splits the
   * autonomous-vs-interactive choice into two sibling objects so the call site
