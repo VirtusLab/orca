@@ -40,10 +40,10 @@ final class JsonFile(fs: FileSystem):
   */
 object JsonFile:
 
-  /** Outcome of [[read]]. The two failure arms call for opposite actions:
-    * content orca wrote and cannot parse is safe to replace, while a file it
-    * could not read at all may still hold data, and overwriting it would
-    * destroy that.
+  /** Outcome of [[JsonFile!.read]]. The two failure arms call for opposite
+    * actions: content orca wrote and cannot parse is safe to replace, while a
+    * file it could not read at all may still hold data, and overwriting it
+    * would destroy that.
     */
   enum Read[+A]:
     /** No file at the path. */

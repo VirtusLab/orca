@@ -31,7 +31,7 @@ type Tool[I] =
 @assumeSafe
 type Result = ToolResult[NoStructuredOutput]
 
-/** A tool whose input is decoded through its [[JsonData]] codec. */
+/** A tool whose input is decoded through its [[orca.json.JsonData]] codec. */
 @assumeSafe
 def tool[I](name: String, description: String)(
     handle: I => Result
