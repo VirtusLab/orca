@@ -53,15 +53,16 @@ the tests won't see `ORCA_INTEGRATION=1`.
 | `OsGitHubIntegrationTest` | `gh` authenticated |
 | `BuiltInFlowsCompileTest`, `FlowAuthoringSmokeTest` | `scala-cli`, and a `publishLocal` in the same sbt invocation |
 | `ScalaCliSmokeTest` | the above, plus `claude` authenticated — it starts a real flow |
+| `CompileProbeTest` | `scala-cli` |
 
-The three scala-cli suites link a script against the local Ivy cache, so they
+The other three scala-cli suites link a script against the local Ivy cache, so they
 need `publishLocal` in the *same* sbt invocation: the scripts pin that run's
 dynver version (runner's suite reads it from `-Dorca.build.version`, shell's
 from the version resource the build generates).
 
-`BuiltInFlowsCompileTest` is the only one CI runs (its own `flow-scripts` job),
-being the only one needing no credentials. It compiles every built-in flow as
-`BuiltInFlows` stages them for a snapshot build — pin rewritten to the
+CI runs `BuiltInFlowsCompileTest` and `CompileProbeTest` in its own
+`flow-scripts` job. The former compiles
+every built-in flow as `BuiltInFlows` stages them for a snapshot build — pin rewritten to the
 just-published version, `//> using repository ivy2Local` inserted — so an API change that
 breaks the flows fails CI instead of shipping. On a release version there is no
 rewrite (the flows resolve from Maven Central), so it skips itself.

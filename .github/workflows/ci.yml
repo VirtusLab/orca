@@ -8,9 +8,9 @@ on:
 
 # The `test` job runs the unit suites only. The integration suites gated on
 # `ORCA_INTEGRATION=1` need an authenticated `claude`/`gh` and stay skipped —
-# except `BuiltInFlowsCompileTest`, which needs only scala-cli and gets its own
-# `flow-scripts` job, with the env var scoped to that one `testOnly`. Run the
-# rest locally with `ORCA_INTEGRATION=1 sbt testFull`.
+# except `BuiltInFlowsCompileTest` and `CompileProbeTest`, which need only
+# scala-cli and get their own `flow-scripts` job, with the env var scoped to
+# that one `testOnly`. Run the rest locally with `ORCA_INTEGRATION=1 sbt testFull`.
 #
 # Publish runs inline (rather than reusing
 # softwaremill/github-actions-workflows) because `secrets: inherit` only
@@ -60,7 +60,7 @@ jobs:
       - uses: sbt/setup-sbt@v1
       - uses: coursier/cache-action@v6
       - run: |
-          sbt "publishLocal ; shell/testOnly *BuiltInFlowsCompileTest" | tee sbt.log
+          sbt "publishLocal ; shell/testOnly *BuiltInFlowsCompileTest *CompileProbeTest" | tee sbt.log
           if grep "Couldn't resolve a member" sbt.log; then
             echo "::error::Unresolved scaladoc link(s), see above"
             exit 1
