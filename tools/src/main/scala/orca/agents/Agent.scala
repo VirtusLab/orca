@@ -180,10 +180,19 @@ final class Agent[B <: BackendTag] private (
   def withSelfManagedGit: Agent[B] =
     copy(config = config.copy(selfManagedGit = true))
 
-  /** Sibling whose config pins [[AgentConfig.effort]] to `effort`. Backends
-    * that support it expose this as `withEffort`.
+  /** Set the reasoning effort: `codex.withEffort(Effort.High)`. Compiles only
+    * on harnesses with an [[EffortSupport]]; throws `IllegalArgumentException`
+    * for a level the harness does not accept.
     */
-  private[orca] def withEffortLevel(effort: Effort): Agent[B] =
+  def withEffort(effort: Effort)(using support: EffortSupport[B]): Agent[B] =
+    support.check(effort) match
+      case Right(accepted) => withCheckedEffort(accepted)
+      case Left(problem)   => throw IllegalArgumentException(problem)
+
+  /** [[withEffort]] for a level already passed through this harness's
+    * [[EffortSupport.check]], when only the harness's tag is known.
+    */
+  private[orca] def withCheckedEffort(effort: Effort): Agent[B] =
     copy(config = config.copy(effort = Some(effort)))
 
   /** Sibling whose config pins [[AgentConfig.networkTools]] to `tools`.

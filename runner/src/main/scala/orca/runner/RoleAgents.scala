@@ -148,7 +148,7 @@ private[orca] object RoleAgents:
       spec: Option[AgentSpec]
   ): (String, Option[String]) =
     val harness =
-      AgentSpec.harnessNameFor(spec.fold(agent.backendTag)(_.backend))
+      spec.fold(agent.backendTag)(_.backend).harnessName
     (harness, spec.flatMap(_.model).orElse(agent.config.model.map(_.name)))
 
   private def resolveOne(
@@ -177,7 +177,7 @@ private[orca] object RoleAgents:
             val source =
               if projectSpec.isDefined then RoleSource.Project
               else RoleSource.Global
-            val agent = agents.agentFor(spec.backend, spec.model)
+            val agent = agents.agentFor(spec)
             val (harness, model) = harnessAndModel(agent, Some(spec))
             RoleChoice(label, agent, source, harness, model, foreign = false)
           case None =>
@@ -215,11 +215,11 @@ private[orca] object RoleAgents:
     */
   private val UnpinnedModelLabel = "<harness default>"
 
-  /** One role's announcement segment, `label=harness:model (source)` — pure
-    * formatting of [[RoleChoice]]'s precomputed fields.
+  /** One role's announcement segment, `label=harness:model[@effort] (source)`.
     */
   private def announce(c: RoleChoice): String =
-    s"${c.label}=${c.harness}:${c.model.getOrElse(UnpinnedModelLabel)} (${sourceLabel(c.source)})"
+    val effort = AgentSpec.effortSuffix(c.agent.config.effort)
+    s"${c.label}=${c.harness}:${c.model.getOrElse(UnpinnedModelLabel)}$effort (${sourceLabel(c.source)})"
 
   private def sourceLabel(source: RoleSource): String =
     source match

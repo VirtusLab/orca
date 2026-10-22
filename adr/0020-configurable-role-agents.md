@@ -51,7 +51,7 @@ codingAgent = codex
 reviewAgent = opencode:anthropic/claude-sonnet-4-5
 ```
 
-Value grammar: `harness:model`, split at the FIRST `:` (so a model id
+Value grammar: `harness[:model][@effort]`, split at the FIRST `:` (so a model id
 containing `:` survives), model optional. `harness` ∈ `claude | codex |
 opencode | pi | gemini` — an unrecognised name is a parse error naming the
 valid set. The model part is passed **verbatim** to the harness's
@@ -59,7 +59,11 @@ valid set. The model part is passed **verbatim** to the harness's
 `Model`'s existing contract: for claude the CLI itself accepts aliases
 (`opus`, `sonnet`), for opencode it is the provider-qualified `provider/model`
 form its existing validation checks. An empty value is equivalent to the key
-being absent (the existing parser rule for stack keys too).
+being absent (the existing parser rule for stack keys too). The optional
+`@<level>` sets the reasoning effort and is split off first. An all-letter
+suffix after the last `@` is read as a level, so a model id like
+`claude-sonnet-4@20250514` survives; an unknown level, or one the harness does
+not accept, is a parse error.
 
 ### 2. Locations & precedence
 
@@ -235,12 +239,14 @@ naming each resolved role, its harness/model, and its source
 run here?":
 
 ```text
-agents: planning=claude (default), coding=codex:gpt-5-mini (project), review=claude (global)
+agents: planning=claude (default), coding=codex:gpt-5-mini@low (project), review=claude (global)
 ```
 
 The harness+model shown is the winning `AgentSpec`; an override shows its
 resolved backend's harness with no model (the override's pin isn't a spec);
-the built-in default shows `claude` with no model.
+the built-in default shows `claude` with no model. A role whose resolved agent
+has an effort set, from settings or an override's `withEffort`, also shows
+`@<level>`.
 
 ### 11. Non-goals
 

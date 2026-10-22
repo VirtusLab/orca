@@ -321,7 +321,7 @@ class SettingsFileTest extends FunSuite:
       SettingsFile.render(entries),
       """# orca settings — edit freely, commit with the project.
         |# format/lint/test: one shell command per key; `off` disables the gate. Delete the stack lines (or the whole file) to re-run auto-discovery.
-        |# planningAgent/codingAgent/reviewAgent (harness[:model]): override the global settings file; a flow's own code overrides both.
+        |# planningAgent/codingAgent/reviewAgent (harness[:model][@effort]): override the global settings file; a flow's own code overrides both.
         |# Cargo.toml (rustfmt ships with the toolchain)
         |format = cargo fmt
         |# compiles main+test code, runs nothing
@@ -358,7 +358,7 @@ class SettingsFileTest extends FunSuite:
     val content =
       """# orca settings — edit freely, commit with the project.
         |# format/lint/test: one shell command per key; `off` disables the gate. Delete the stack lines (or the whole file) to re-run auto-discovery.
-        |# planningAgent/codingAgent/reviewAgent (harness[:model]): override the global settings file; a flow's own code overrides both.
+        |# planningAgent/codingAgent/reviewAgent (harness[:model][@effort]): override the global settings file; a flow's own code overrides both.
         |# Cargo.toml (rustfmt ships with the toolchain)
         |format = cargo fmt
         |# compiles main+test code, runs nothing
@@ -374,7 +374,7 @@ class SettingsFileTest extends FunSuite:
       stripped,
       """# orca settings — edit freely, commit with the project.
         |# format/lint/test: one shell command per key; `off` disables the gate. Delete the stack lines (or the whole file) to re-run auto-discovery.
-        |# planningAgent/codingAgent/reviewAgent (harness[:model]): override the global settings file; a flow's own code overrides both.
+        |# planningAgent/codingAgent/reviewAgent (harness[:model][@effort]): override the global settings file; a flow's own code overrides both.
         |# a user note about coding agent
         |codingAgent = codex
         |# just a regular comment

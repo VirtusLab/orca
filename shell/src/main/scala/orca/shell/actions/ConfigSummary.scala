@@ -21,8 +21,8 @@ import orca.tools.OsGitTool
 private[shell] object ConfigSummary:
 
   /** `agents: planning=X, coding=Y, review=Z`, `X`/`Y`/`Z` rendered
-    * `harness[:model]` (`claude` when a role is unset anywhere), with a
-    * project-file override winning over the global one per role. Either file
+    * `harness[:model][@effort]` (`claude` when a role is unset anywhere), with
+    * a project-file override winning over the global one per role. Either file
     * being malformed renders a one-line warning instead of crashing.
     */
   def agentsLine(globalSettingsPath: os.Path, workDir: os.Path): String =
@@ -63,8 +63,7 @@ private[shell] object ConfigSummary:
         case Head.Detached(_)    => "branch: (detached HEAD)"
 
   private def renderSpec(spec: Option[AgentSpec]): String =
-    spec.fold("claude"): s =>
-      AgentSpec.harnessNameFor(s.backend) + s.model.fold("")(":" + _)
+    spec.fold("claude")(_.render)
 
   /** `stack: format=X, lint=Y, test=Z` — one entry per [[StackAction.status]]
     * key, `off` for an empty/disabled one; `stack: not discovered yet —

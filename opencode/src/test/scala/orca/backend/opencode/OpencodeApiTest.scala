@@ -9,7 +9,9 @@ import orca.json.RawJson
 
 class OpencodeApiTest extends munit.FunSuite:
 
-  test("MessageBody serialises parts, model, system, tools, and format"):
+  test(
+    "MessageBody serialises parts, model, system, tools, format and variant"
+  ):
     val body = MessageBody(
       parts = List(MessagePart("text", "do it")),
       model = Some(ModelRef("openai", "gpt-4o-mini")),
@@ -17,7 +19,8 @@ class OpencodeApiTest extends munit.FunSuite:
       agent = None,
       tools = Some(Map("question" -> false)),
       format =
-        Some(OutputFormat("json_schema", RawJson("""{"type":"object"}""")))
+        Some(OutputFormat("json_schema", RawJson("""{"type":"object"}"""))),
+      variant = Some("high")
     )
     val json = writeToString(body)
     assert(json.contains(""""text":"do it""""), json)
@@ -27,6 +30,7 @@ class OpencodeApiTest extends munit.FunSuite:
     assert(json.contains(""""question":false"""), json)
     assert(json.contains(""""type":"json_schema""""), json)
     assert(json.contains(""""schema":{"type":"object"}"""), json)
+    assert(json.contains(""""variant":"high""""), json)
 
   test("MessageBody omits absent optional fields"):
     val body = MessageBody(
@@ -35,12 +39,14 @@ class OpencodeApiTest extends munit.FunSuite:
       system = None,
       agent = None,
       tools = None,
-      format = None
+      format = None,
+      variant = None
     )
     val json = writeToString(body)
     assert(!json.contains("system"), json)
     assert(!json.contains("format"), json)
     assert(!json.contains("tools"), json)
+    assert(!json.contains("variant"), json)
 
   test("reply bodies serialise to the server's expected shape"):
     assertEquals(

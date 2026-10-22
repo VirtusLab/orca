@@ -130,8 +130,7 @@ private[cli] object ConfigCli:
 
   private[cli] def renderAgents(agents: AgentSettings): String =
     def line(role: String, spec: Option[AgentSpec]): String =
-      val value = spec.fold("(not set)"): s =>
-        AgentSpec.harnessNameFor(s.backend) + s.model.fold("")(":" + _)
+      val value = spec.fold("(not set)")(_.render)
       s"$role: $value"
     List(
       line("planning", agents.planning),

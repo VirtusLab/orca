@@ -1,7 +1,6 @@
 package orca.shell.actions
 
 import org.jline.terminal.Terminal
-import orca.settings.AgentSpec
 import orca.shell.run.ChildTerminal
 import orca.shell.sessions.{ResumeCommand, SessionNaming, SessionSelection}
 import orca.shell.ui.ShellOutput
@@ -31,7 +30,7 @@ private[shell] object SessionAction:
   def resumeNotice(selection: SessionSelection): String =
     identityNotice(
       selection,
-      AgentSpec.harnessNameFor(selection.session.backend)
+      selection.session.backend.harnessName
     )
 
   /** The notice [[resumeNotice]] prints — name, harness, stage, recorded

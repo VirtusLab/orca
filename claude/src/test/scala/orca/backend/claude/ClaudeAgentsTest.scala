@@ -1,10 +1,10 @@
 package orca.backend.claude
 
-import orca.agents.{DefaultPrompts, Effort, NetworkTools}
+import orca.agents.{DefaultPrompts, NetworkTools}
 import orca.backend.AgentWiring
 import orca.events.OrcaListener
 import orca.testkit.TestAgent
-import orca.backend.claude.ClaudeAgents.{withEffort, withNetworkTools}
+import orca.backend.claude.ClaudeAgents.withNetworkTools
 
 class ClaudeAgentsTest extends munit.FunSuite:
 
@@ -16,14 +16,6 @@ class ClaudeAgentsTest extends munit.FunSuite:
       DefaultPrompts
     )
   )
-
-  test("withEffort pins the level and stays on the agent's backend"):
-    val tuned = claude.withEffort(Effort.Medium)
-    assertEquals(tuned.config.effort, Some(Effort.Medium))
-    assert(tuned.sharesBackendWith(claude))
-
-  test("cheap drops the effort along with the leading model"):
-    assertEquals(claude.withEffort(Effort.Max).cheap.config.effort, None)
 
   // One backend holds the sessions, the close latch and the enforcement
   // notices, so a sibling on another backend would lose all three.

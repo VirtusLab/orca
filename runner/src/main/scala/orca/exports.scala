@@ -39,7 +39,8 @@ export orca.agents.{
   PromptEvent,
   ToolSet,
   BackendTag,
-  Announce
+  Announce,
+  Effort
 }
 export orca.json.{JsonData, schemaFromJsonData, codecFromJsonData}
 export orca.plan.{
@@ -132,7 +133,6 @@ export orca.backend.claude.ClaudeAgents.{
   sonnet,
   opus,
   fable,
-  withEffort,
   withNetworkTools
 }
 export orca.backend.codex.CodexAgents
@@ -163,8 +163,6 @@ type ReviewerSlug = orca.review.ReviewerSlug
 val ReviewerSlug: orca.review.ReviewerSlug.type = orca.review.ReviewerSlug
 type FindingId = orca.review.FindingId
 val FindingId: orca.review.FindingId.type = orca.review.FindingId
-type Effort = orca.agents.Effort
-val Effort: orca.agents.Effort.type = orca.agents.Effort
 type Model = orca.agents.Model
 val Model: orca.agents.Model.type = orca.agents.Model
 type OpencodeLauncher = orca.backend.opencode.OpencodeLauncher

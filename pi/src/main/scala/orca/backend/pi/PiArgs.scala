@@ -4,6 +4,7 @@ import orca.backend.CliArgs
 import orca.agents.{
   AgentConfig,
   AutoApprove,
+  EffortSupport,
   Enforcement,
   EnforcementCell,
   ToolSet,
@@ -38,6 +39,7 @@ private[pi] object PiArgs:
     Seq("pi", "--mode", "rpc", "--session-dir", sessionDir.toString) ++
       continueArgs(dispatch) ++
       CliArgs.modelArgs(config) ++
+      CliArgs.flag("--thinking", config.effort)(EffortSupport.pi.wire) ++
       systemPromptArgs(systemPromptFile) ++
       toolsWiring(
         config.tools,

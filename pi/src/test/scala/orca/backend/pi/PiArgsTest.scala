@@ -1,6 +1,6 @@
 package orca.backend.pi
 
-import orca.agents.{AgentConfig, Model, ToolSet, TurnDispatch}
+import orca.agents.{AgentConfig, Effort, Model, ToolSet, TurnDispatch}
 
 class PiArgsTest extends munit.FunSuite:
 
@@ -31,6 +31,15 @@ class PiArgsTest extends munit.FunSuite:
       args.containsSlice(Seq("--append-system-prompt", "/tmp/system.md")),
       args
     )
+
+  test("effort is rendered as --thinking"):
+    val args = PiArgs.rpc(
+      dir,
+      TurnDispatch.Fresh,
+      AgentConfig(effort = Some(Effort.Off)),
+      None
+    )
+    assert(args.containsSlice(Seq("--thinking", "off")), args)
 
   test("read-only tools exclude writes"):
     val args = PiArgs.rpc(

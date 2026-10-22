@@ -1,7 +1,6 @@
 package orca.shell.sessions
 
 import orca.StagePath
-import orca.settings.AgentSpec
 import orca.shell.ui.Choice
 
 /** The continue-a-session picker (ADR 0021 §8): labels a [[SessionIndex]]'s
@@ -149,7 +148,7 @@ private[shell] object SessionPicker:
     * marker shows only for a crashed attempt.
     */
   private def rowTail(selection: SessionSelection, marker: String): String =
-    val harness = AgentSpec.harnessNameFor(selection.session.backend)
+    val harness = selection.session.backend.harnessName
     val branch = selection.attempt.branch.fold("")(b => s" on ${b.value}")
     val crashed = SessionNaming.crashedSuffix(selection.observedStatus)
     s"[$harness]$marker$branch$crashed"

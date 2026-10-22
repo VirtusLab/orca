@@ -33,5 +33,6 @@ private[shell] object CliHelp:
        |  orca create "summarize a PR's review threads"
        |  orca continue --list
        |  orca config --coding-agent codex
+       |  orca config --review-agent claude:sonnet@high
        |
        |Run 'orca <command> --help' for details. 'orca --version' prints the version.""".stripMargin

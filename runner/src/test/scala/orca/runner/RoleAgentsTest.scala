@@ -139,6 +139,20 @@ class RoleAgentsTest extends munit.FunSuite:
       s"expected the wired codex's own model: ${resolution.announcement}"
     )
 
+  test("resolveAll announces a project effort after the model"):
+    val resolution = resolveInScope(
+      project = AgentSettings(coding =
+        AgentSpec.parse("codex:gpt-5-mini@low").toOption
+      ),
+      global = AgentSettings.empty,
+      overrides = RoleOverrides(None, None, None),
+      agents = wiredAgents()
+    )
+    assert(
+      resolution.announcement.contains("coding=codex:gpt-5-mini@low (project)"),
+      resolution.announcement
+    )
+
   test("resolveAll renders a project model pin as harness:model"):
     val resolution = resolveInScope(
       project = AgentSettings(coding =

@@ -4,6 +4,7 @@ import orca.agents.{
   AutoApprove,
   BackendTag,
   AgentConfig,
+  Effort,
   Model,
   WireSessionId,
   ToolSet
@@ -29,6 +30,18 @@ class CodexArgsTest extends munit.FunSuite:
       workDir = os.pwd
     )
     assert(args.containsSlice(Seq("--model", "gpt-5.4-mini")))
+
+  test("exec sets model_reasoning_effort before the subcommand"):
+    val args = CodexArgs.exec(
+      prompt = "x",
+      config = AgentConfig(effort = Some(Effort.Off)),
+      outputSchemaFile = None,
+      workDir = os.pwd
+    )
+    assertEquals(
+      args.take(4),
+      Seq("codex", "-c", "model_reasoning_effort=\"none\"", "exec")
+    )
 
   test("exec passes -C <workDir>"):
     val workDir = TempDirs.dir()
@@ -253,3 +266,12 @@ class CodexArgsTest extends munit.FunSuite:
       AgentConfig().copy(model = Some(Model("gpt-5.4-mini")))
     )
     assert(args.containsSlice(Seq("--model", "gpt-5.4-mini")))
+
+  test("execResume propagates model_reasoning_effort"):
+    val sid = WireSessionId[BackendTag.Codex.type]("sid")
+    val args = CodexArgs.execResume(
+      sid,
+      "x",
+      AgentConfig(effort = Some(Effort.High))
+    )
+    assert(args.containsSlice(Seq("-c", "model_reasoning_effort=\"high\"")))

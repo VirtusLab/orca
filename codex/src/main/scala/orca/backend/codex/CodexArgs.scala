@@ -6,6 +6,7 @@ import orca.agents.{
   AutoApprove,
   BackendTag,
   AgentConfig,
+  EffortSupport,
   Enforcement,
   EnforcementCell,
   WireSessionId,
@@ -37,6 +38,7 @@ private[codex] object CodexArgs:
       sandboxWiring(config.tools, config.autoApprove, TurnDispatch.Fresh)
     Seq("codex") ++
       mcpServerArgs(mcpServerUrl) ++
+      effortArgs(config) ++
       wiring.preSubcommand ++
       Seq("exec", "--json") ++
       wiring.postSubcommand ++
@@ -73,6 +75,7 @@ private[codex] object CodexArgs:
       sandboxWiring(config.tools, config.autoApprove, TurnDispatch.Resumed)
     Seq("codex") ++
       mcpServerArgs(mcpServerUrl) ++
+      effortArgs(config) ++
       wiring.preSubcommand ++
       Seq("exec", "resume", "--json", WireSessionId.value(sessionId)) ++
       wiring.postSubcommand ++
@@ -100,6 +103,11 @@ private[codex] object CodexArgs:
         "-c",
         s"mcp_servers.${AskUserMcpServer.ServerName}.tool_timeout_sec=$timeoutSec"
       )
+
+  /** `model_reasoning_effort` as a global `-c` override, TOML-quoted. */
+  private def effortArgs(config: AgentConfig): Seq[String] =
+    CliArgs.flag("-c", config.effort): effort =>
+      s"""model_reasoning_effort="${EffortSupport.codex.wire(effort)}""""
 
   private def cwdArgs(workDir: os.Path): Seq[String] =
     Seq("-C", workDir.toString)
