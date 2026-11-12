@@ -49,5 +49,11 @@ openspec/
 .superpowers/
 .claude/worktrees/
 
+<<<<<<< ours
 .superset
 docs/_build
+=======
+# TraceVault — local only, do not commit
+.tracevault/
+.claude/settings.local.json
+>>>>>>> theirs
