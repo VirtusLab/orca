@@ -1,5 +1,10 @@
 package orca.subprocess
 
+import ox.discard
+
+import java.util.concurrent.ConcurrentLinkedQueue
+import scala.jdk.CollectionConverters.given
+
 /** Subprocess invocation that **guarantees captured stderr**.
   *
   * os-lib defaults `os.proc(...).call(...)`'s `stderr` to `os.Inherit`, which
@@ -33,15 +38,18 @@ private[orca] object QuietProc:
       stdin: os.ProcessInput = os.Pipe
   ): os.CommandResult =
     log.debug("exec: {}", args.mkString(" "))
-    os.proc(args)
-      .call(
-        cwd = cwd,
-        env = env,
-        stdin = stdin,
-        stdout = os.Pipe,
-        stderr = os.Pipe,
-        check = false
-      )
+    val chunks = ConcurrentLinkedQueue[Either[geny.Bytes, geny.Bytes]]()
+    val exitCode = runToExit(
+      args,
+      cwd,
+      env,
+      stdin,
+      stdout =
+        os.ProcessOutput((buf, n) => chunks.add(Left(bytes(buf, n))).discard),
+      stderr =
+        os.ProcessOutput((buf, n) => chunks.add(Right(bytes(buf, n))).discard)
+    )
+    os.CommandResult(args, exitCode, chunks.asScala.toIndexedSeq)
 
   /** Run `args` to completion, keeping at most `maxBytes` of each of stdout and
     * stderr: the rest is drained and dropped, so the exit code is the one
@@ -62,22 +70,37 @@ private[orca] object QuietProc:
     log.debug("exec: {}", args.mkString(" "))
     val outKept = new java.io.ByteArrayOutputStream()
     val errKept = new java.io.ByteArrayOutputStream()
-    val result = os
-      .proc(args)
-      .call(
-        cwd = cwd,
-        env = env,
-        stdin = os.Pipe,
-        stdout = os.ProcessOutput(keepFirst(maxBytes, outKept)),
-        stderr = os.ProcessOutput(keepFirst(maxBytes, errKept)),
-        check = false
-      )
+    val exitCode = runToExit(
+      args,
+      cwd,
+      env,
+      stdin = os.Pipe,
+      stdout = os.ProcessOutput(keepFirst(maxBytes, outKept)),
+      stderr = os.ProcessOutput(keepFirst(maxBytes, errKept))
+    )
     CappedResult(
-      exitCode = result.exitCode,
+      exitCode = exitCode,
       out = utf8(withoutSentinel(outKept.toByteArray, maxBytes)),
       truncated = outKept.size() > maxBytes,
       err = utf8(withoutSentinel(errKept.toByteArray, maxBytes))
     )
+
+  /** Joins the output pump threads too, so their writes are visible on return.
+    */
+  private def runToExit(
+      args: Seq[String],
+      cwd: os.Path,
+      env: Map[String, String],
+      stdin: os.ProcessInput,
+      stdout: os.ProcessOutput,
+      stderr: os.ProcessOutput
+  ): Int =
+    val sub = Spawn(args, cwd, env, stdin, stdout, stderr)
+    sub.join().discard
+    sub.exitCode()
+
+  private def bytes(buf: Array[Byte], n: Int): geny.Bytes =
+    geny.Bytes(java.util.Arrays.copyOf(buf, n))
 
   /** What a sink retained, less the sentinel byte. Reads the answer off the
     * sink rather than re-cutting at `maxBytes`, so a sink that stopped bounding
@@ -91,9 +114,8 @@ private[orca] object QuietProc:
     * sentinel byte — that extra byte is how "the child wrote more than the cap"
     * is told from "it wrote exactly the cap", and it never reaches the result.
     *
-    * os-lib writes this from a pump thread of its own and joins that thread
-    * before `call` returns; the join is what publishes `into`'s contents to the
-    * caller.
+    * os-lib writes this from a pump thread of its own, which `runToExit` joins;
+    * the join is what publishes `into`'s contents to the caller.
     */
   private[subprocess] def keepFirst(
       maxBytes: Int,

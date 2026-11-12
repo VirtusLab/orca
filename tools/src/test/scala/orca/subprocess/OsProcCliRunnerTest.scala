@@ -174,3 +174,14 @@ class OsProcCliRunnerTest extends munit.FunSuite:
     )
     try assertEquals(proc.stdoutLines.toList, List("late"))
     finally proc.destroyForciblyTree()
+
+  test("spawnPiped of a missing program fails only in the caller"):
+    val failedThreads = OsLibThreadFailures.during:
+      intercept[java.io.IOException]:
+        OsProcCliRunner.spawnPiped(
+          Seq("orca-test-no-such-program"),
+          env = Map.empty,
+          cwd = os.pwd
+        )
+      .discard
+    assertEquals(failedThreads, Nil)

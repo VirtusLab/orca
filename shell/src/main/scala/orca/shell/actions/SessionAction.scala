@@ -4,7 +4,7 @@ import org.jline.terminal.Terminal
 import orca.shell.run.ChildTerminal
 import orca.shell.sessions.{ResumeCommand, SessionNaming, SessionSelection}
 import orca.shell.ui.ShellOutput
-import orca.subprocess.QuietProc
+import orca.subprocess.{QuietProc, Spawn}
 import orca.backend.gemini.GeminiSessionList
 import orca.backend.pi.PiSessionStore
 
@@ -126,15 +126,7 @@ private[shell] object SessionAction:
           case Right(argv) =>
             try
               val exitCode = ChildTerminal.withChild(terminal):
-                os.proc(argv)
-                  .call(
-                    cwd = workDir,
-                    stdin = os.Inherit,
-                    stdout = os.Inherit,
-                    stderr = os.Inherit,
-                    check = false
-                  )
-                  .exitCode
+                Spawn.inheritingStdio(argv, workDir)
               ShellOutput.info(s"session ended (exit code $exitCode)")
               Right(exitCode)
             catch case NonFatal(e) => Left(s"resume failed — ${e.getMessage}")

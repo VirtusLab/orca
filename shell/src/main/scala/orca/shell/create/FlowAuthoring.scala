@@ -3,6 +3,7 @@ package orca.shell.create
 import orca.agents.BackendTag
 import orca.settings.{AgentSpec, SettingsFile, SettingsScope}
 import orca.shell.{OrcaBuild, ShellEnv, Tier}
+import orca.subprocess.Spawn
 import orca.util.PromptResource
 
 import scala.util.control.NonFatal
@@ -263,8 +264,8 @@ private[shell] object FlowAuthoring:
     * a zero exit; `None` on a timeout (the process tree is killed — os-lib's
     * `destroy` recurses into `children()`, so the agent CLI's own subprocesses
     * go with it — rather than left running), a non-zero exit, or any failure to
-    * even start (a missing binary throws from `os.proc`'s spawn).
-    * [[suggestFilename]]'s production runner.
+    * even start (a missing binary throws from `Spawn`). [[suggestFilename]]'s
+    * production runner.
     */
   private def runSlugProc(
       argv: Seq[String],
@@ -272,7 +273,7 @@ private[shell] object FlowAuthoring:
   ): Option[String] =
     try
       val proc =
-        os.proc(argv).spawn(stdin = os.Pipe, stdout = os.Pipe, stderr = os.Pipe)
+        Spawn(argv, os.pwd, Map.empty, os.Pipe, os.Pipe, os.Pipe)
       try
         if proc.waitFor(timeoutMillis) && proc.exitCode() == 0 then
           Some(proc.stdout.text())
