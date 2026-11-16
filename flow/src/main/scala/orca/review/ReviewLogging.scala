@@ -2,7 +2,7 @@ package orca.review
 
 import orca.agents.AgentInput
 import orca.review.diff.{DiffMessage, LastSent, ReReviewChanges}
-import org.slf4j.LoggerFactory
+import orca.safe.Logger
 
 /** Records what each review turn was actually sent, at DEBUG.
   *
@@ -18,7 +18,7 @@ import org.slf4j.LoggerFactory
   * needs no capture checking.
   */
 private[review] object ReviewLogging:
-  private val log = LoggerFactory.getLogger("orca.flow")
+  private val log = Logger("orca.flow")
 
   /** A reviewer's turn. The payload's shape is what a post-mortem needs first:
     * it says whether the reviewer was sent the whole change set, part of it, a
@@ -42,13 +42,7 @@ private[review] object ReviewLogging:
       case DiffMessage.ReReview(ReReviewChanges.AlreadySeen(last)) =>
         (s"already-seen/${lastSentShape(last)}", 0, Nil)
     log.debug(
-      "review prompt: reviewer={} round={} payload={} chars={} files={}\n{}",
-      reviewer,
-      round,
-      shape,
-      chars,
-      joined(files),
-      prompt
+      s"review prompt: reviewer=$reviewer round=$round payload=$shape chars=$chars files=${joined(files)}\n$prompt"
     )
 
   /** The fix turn: which findings the coder was handed, then the prompt.
@@ -57,24 +51,17 @@ private[review] object ReviewLogging:
     * second time, which is wasted whenever DEBUG is off.
     */
   def fix(request: FixRequest): Unit =
-    if log.isDebugEnabled then
-      log.debug(
-        "fix prompt: findings={} keys={}\n{}",
-        request.findings.size,
-        joined(request.findings.map(_.key)),
-        render(request)
-      )
+    log.debug(
+      s"fix prompt: findings=${request.findings.size} keys=${joined(request.findings.map(_.key))}\n${render(request)}"
+    )
 
   /** The reviewer picker's one call, which happens before any round. Guarded
     * for the same reason as [[fix]].
     */
   def reviewerPick(request: ReviewerSelectionRequest): Unit =
-    if log.isDebugEnabled then
-      log.debug(
-        "reviewer picker prompt: candidates={}\n{}",
-        joined(request.availableReviewers.map(_.name)),
-        render(request)
-      )
+    log.debug(
+      s"reviewer picker prompt: candidates=${joined(request.availableReviewers.map(_.name))}\n${render(request)}"
+    )
 
   private def render[A: AgentInput](input: A): String =
     summon[AgentInput[A]].serialize(input)

@@ -26,7 +26,7 @@ def reviewOnce(
     reviewerSelection: ReviewerSelector = ReviewerSelector.agentDriven
 )(using ctx: FlowContext, ev: InStage, fc: FlowControl): ReviewReport =
   val source = ReviewDiff.resolve(diff) match
-    case Right(s) => s
+    case Right(s)      => s
     case Left(skipped) =>
       throw new OrcaFlowException(s"cannot review: ${skipped.describe}")
   val sample = source.sample()

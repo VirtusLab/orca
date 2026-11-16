@@ -932,7 +932,7 @@ private[review] class ReviewFixLoop(
   private def recheck(lintChat: Option[Lint.Summariser]): Recheck =
     val checked = runChecks(firstAgentIndex = lintGate.size)
     lintGate match
-      case None => Recheck(checked, lintChat = None)
+      case None       => Recheck(checked, lintChat = None)
       case Some(gate) =>
         val report = lint(
           gate.commands,

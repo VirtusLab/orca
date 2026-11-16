@@ -40,7 +40,7 @@ private[cli] object ConfigCli:
           )
         )
       case Some(tier) => runEdit(tier, tty)
-      case None =>
+      case None       =>
         runConfig(env.configHome.settings, planning, coding, review, force)
 
   /** `config`'s behavior over the settings file at `path`. */

@@ -4,8 +4,6 @@ import orca.agents.Announce
 import orca.json.JsonData
 import orca.util.PromptResource
 
-import sttp.tapir.Validator
-
 /** What [[SelectedReviewers.pick]] resolved: the roster entries the picker
   * named, in roster order, and the names that matched none of them. A caller
   * cannot consume a partially-failed pick without naming the residue — a
@@ -47,7 +45,7 @@ object SelectedReviewers:
   given JsonData[SelectedReviewers] =
     val plain = JsonData.derived[SelectedReviewers]
     JsonData(
-      plain.schema.modify(_.names)(_.validate(Validator.nonEmpty)),
+      plain.schema.modify(_.names)(_.validate(JsonData.nonEmptyValidator)),
       plain.codec
     )
 

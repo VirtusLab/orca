@@ -1,14 +1,10 @@
 package orca.backend.claude.streamjson
 
-import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
-import com.github.plokhotnyuk.jsoniter_scala.macros.{
-  ConfiguredJsonValueCodec,
-  JsonCodecMaker
-}
-import orca.json.RawJson
+import com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec
+import orca.json.{JsonCodec, RawJson}
+import orca.safe.Logger
+import orca.safe.prelude.NonFatal
 import orca.util.OrcaDebug
-
-import scala.util.control.NonFatal
 
 /** A single block inside an assistant or user message's `content` array.
   *
@@ -26,31 +22,30 @@ private[claude] enum ContentBlock:
 private[claude] object ContentBlock:
 
   def parse(rawJson: String): ContentBlock =
-    val envelope = readFromString[BlockEnvelope](rawJson)
+    val envelope = JsonCodec.readString[BlockEnvelope](rawJson)
     envelope.`type` match
-      case "text"        => readFromString[TextWire](rawJson).toBlock
-      case "thinking"    => readFromString[ThinkingWire](rawJson).toBlock
-      case "tool_use"    => readFromString[ToolUseWire](rawJson).toBlock
-      case "tool_result" => readFromString[ToolResultWire](rawJson).toBlock
-      case other         => Unknown(other)
+      case "text"        => JsonCodec.readString[TextWire](rawJson).toBlock
+      case "thinking"    => JsonCodec.readString[ThinkingWire](rawJson).toBlock
+      case "tool_use"    => JsonCodec.readString[ToolUseWire](rawJson).toBlock
+      case "tool_result" =>
+        JsonCodec.readString[ToolResultWire](rawJson).toBlock
+      case other => Unknown(other)
 
   // --- Wire shapes ---
 
-  private case class BlockEnvelope(`type`: String)
-      derives ConfiguredJsonValueCodec
+  private case class BlockEnvelope(`type`: String) derives JsonCodec
 
-  private case class TextWire(text: String) derives ConfiguredJsonValueCodec:
+  private case class TextWire(text: String) derives JsonCodec:
     def toBlock: ContentBlock = Text(text)
 
-  private case class ThinkingWire(thinking: String)
-      derives ConfiguredJsonValueCodec:
+  private case class ThinkingWire(thinking: String) derives JsonCodec:
     def toBlock: ContentBlock = Thinking(thinking)
 
   private case class ToolUseWire(
       id: String,
       name: String,
       input: RawJson
-  ) derives ConfiguredJsonValueCodec:
+  ) derives JsonCodec:
     def toBlock: ContentBlock =
       ToolUse(id = id, name = name, rawInput = input.value)
 
@@ -62,7 +57,7 @@ private[claude] object ContentBlock:
       tool_use_id: String,
       content: RawJson = RawJson("\"\""),
       is_error: Option[Boolean] = None
-  ) derives ConfiguredJsonValueCodec:
+  ) derives JsonCodec:
     def toBlock: ContentBlock =
       ToolResult(
         toolUseId = tool_use_id,
@@ -82,7 +77,7 @@ private[claude] object ContentBlock:
     else trimmed
 
   private def decodeStringLiteral(raw: String): String =
-    try readFromString[String](raw)(using stringCodec)
+    try JsonCodec.readString[String](raw)(using stringCodec)
     catch
       case NonFatal(t) =>
         // Claude occasionally sends malformed string literals; fall back to the
@@ -94,7 +89,7 @@ private[claude] object ContentBlock:
   private def decodeNestedBlocks(raw: String): String =
     try
       val flat = flattenBlocks(
-        readFromString[List[NestedBlock]](raw)(using nestedBlocksCodec)
+        JsonCodec.readString[List[NestedBlock]](raw)(using nestedBlocksCodec)
       )
       if flat.nonEmpty then flat else raw
     catch
@@ -110,7 +105,7 @@ private[claude] object ContentBlock:
     if OrcaDebug.streamTrace || OrcaDebug.enabled then
       val snippet =
         if raw.length > 200 then s"${raw.take(200)}…" else raw
-      System.err.println(
+      Logger.stderr(
         s"[orca-debug claude.$where] swallowed ${t.getClass.getName}: " +
           s"${Option(t.getMessage).getOrElse("")} | raw=$snippet"
       )
@@ -134,12 +129,7 @@ private[claude] object ContentBlock:
     def asToolName: Option[String] =
       tool_name.filter(_ => `type` == "tool_reference")
 
-  private given stringCodec
-      : com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec[String] =
-    JsonCodecMaker.make
+  private given stringCodec: JsonValueCodec[String] = JsonCodec.make
 
-  private given nestedBlocksCodec
-      : com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec[List[
-        NestedBlock
-      ]] =
-    JsonCodecMaker.make
+  private given nestedBlocksCodec: JsonValueCodec[List[NestedBlock]] =
+    JsonCodec.make

@@ -25,7 +25,7 @@ object Triage:
     case Change
 
   given Announce[Triage] = Announce.from:
-    case Reject(_) => "Triage: rejected"
+    case Reject(_)                                  => "Triage: rejected"
     case Accept(summary, _, Kind.TestableBug(path)) =>
       s"Triage: bug — $summary; failing test at $path"
     case Accept(summary, _, Kind.UntestableBug(_)) =>

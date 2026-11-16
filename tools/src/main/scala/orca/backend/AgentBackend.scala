@@ -1,7 +1,5 @@
 package orca.backend
 
-import java.util.concurrent.atomic.AtomicBoolean
-
 import orca.events.OrcaListener
 import orca.agents.{
   AutoApprove,
@@ -15,7 +13,9 @@ import orca.agents.{
   ToolSet,
   TurnDispatch
 }
-import ox.{Ox, supervised}
+import orca.concurrency.Ref
+import orca.concurrency.supervised
+import ox.Ox
 
 /** SPI implemented per backend (Claude, Codex, …), called from the
   * autonomous-text and structured-output paths ([[orca.agents.Agent]],
@@ -209,10 +209,14 @@ private[orca] trait AgentBackend[B <: BackendTag]:
       dispatch: Dispatch[B],
       events: OrcaListener
   ): Unit =
+    val turnDispatch = dispatch.asTurnDispatch
     enforcementNotice.announceShortfall(
-      this,
+      tag,
       config,
-      dispatch.asTurnDispatch,
+      turnDispatch,
+      cell = enforcementCell(config.tools, config.autoApprove, turnDispatch),
+      freshCell =
+        enforcementCell(config.tools, config.autoApprove, TurnDispatch.Fresh),
       events
     )
 
@@ -239,8 +243,9 @@ private[orca] trait AgentBackend[B <: BackendTag]:
   // The use-after-close latch lives on the backend, not the Agent instance:
   // every builder constructs a new agent sharing this same backend — a
   // per-agent flag would reset to "open" on every derived handle, letting a
-  // leaked handle bypass the guard.
-  private val closedFlag: AtomicBoolean = new AtomicBoolean(false)
+  // leaked handle bypass the guard. Shared across reviewer forks, so not
+  // `caps.Mutable` (fails separation checking there).
+  private val closedFlag: Ref[Boolean] = Ref(false)
 
   /** Which enforcement notices this backend has already given. */
   private val enforcementNotice: EnforcementNotice = new EnforcementNotice
@@ -254,7 +259,7 @@ private[orca] trait AgentBackend[B <: BackendTag]:
   /** Whether [[markClosed]] has run — i.e. the flow that created this backend
     * (and every agent handle sharing it) has ended.
     */
-  private[orca] final def isClosed: Boolean = closedFlag.get()
+  private[orca] final def isClosed: Boolean = closedFlag.get
 
   /** Refuse a turn against a backend whose flow has ended, so a leaked agent
     * handle can't emit to a closed flow's dispatcher. [[runAutonomous]] /

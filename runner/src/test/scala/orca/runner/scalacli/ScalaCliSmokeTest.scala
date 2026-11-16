@@ -23,11 +23,12 @@ class ScalaCliSmokeTest extends munit.FunSuite:
     import scala.concurrent.duration.DurationInt
     20.minutes
 
-  // Keep in sync with V.scala (project/Dependencies.scala) — not reachable
-  // from test code (build-definition sources aren't on the runtime/test
-  // classpath), so pinned here as a literal. A stale value here fails loudly:
-  // the published library's TASTy won't parse under an older scala-cli pin.
-  private val scalaVersion = "3.9.0"
+  private val scalaVersion: String = sys.props.getOrElse(
+    "orca.build.scalaVersion",
+    sys.error(
+      "-Dorca.build.scalaVersion unset — see scalaVersionProperty in build.sbt"
+    )
+  )
 
   private val version: String = sys.props.getOrElse(
     "orca.build.version",

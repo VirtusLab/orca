@@ -1,19 +1,16 @@
 package orca
 
-import com.github.plokhotnyuk.jsoniter_scala.core.{
-  readFromString,
-  writeToString
-}
+import orca.json.JsonCodec
 import orca.events.{OrcaEvent, StageOutcome}
 import orca.gitref.CommitHash
 import orca.json.{JsonData, RawJson}
 import orca.progress.{StageEntry, StageStart}
 import orca.util.TextUtil
-import org.slf4j.LoggerFactory
+import orca.safe.Logger
 
-import scala.util.control.NonFatal
+import orca.safe.prelude.NonFatal
 
-private val log = LoggerFactory.getLogger("orca.flow")
+private val log = Logger("orca.flow")
 
 /** Run `body` as a named, resumable, committing stage (ADR 0018 §2.1).
   *
@@ -41,7 +38,7 @@ private val log = LoggerFactory.getLogger("orca.flow")
   */
 def stage[T: JsonData](
     name: String,
-    commitMessage: Option[T => String] = None
+    commitMessage: Option[T -> String] = None
 )(body: (InStage, WorkspaceWrite) ?=> T)(using FlowContext, FlowControl): T =
   inStageFrame(name): id =>
     resumeFrom(id).getOrElse(runStage(id, commitMessage)(body))
@@ -114,7 +111,7 @@ private[orca] def gatedStage[G, A, T: JsonData](name: String)(
   inStageFrame(name): id =>
     resumeFrom[T](id) match
       case Some(value) => Right(Staged.Replayed(value))
-      case None =>
+      case None        =>
         gate.map(a => Staged.Fresh(runStage(id, None)(body(a))))
 
 /** [[stage]] reporting where its result came from. */
@@ -141,7 +138,7 @@ private def resumeFrom[T: JsonData](id: StagePath.Stage)(using
       val decoded =
         try
           Some(
-            readFromString[T](entry.resultJson.value)(using
+            JsonCodec.readString[T](entry.resultJson.value)(using
               summon[JsonData[T]].codec
             )
           )
@@ -156,7 +153,7 @@ private def resumeFrom[T: JsonData](id: StagePath.Stage)(using
 /** Run the body fresh, then record its result and commit (steps 3–4 above). */
 private def runStage[T: JsonData](
     id: StagePath.Stage,
-    commitMessage: Option[T => String]
+    commitMessage: Option[T -> String]
 )(body: (InStage, WorkspaceWrite) ?=> T)(using
     ctx: FlowContext,
     fc: FlowControl
@@ -197,9 +194,10 @@ private def runStage[T: JsonData](
 private def recordAndCommit[T: JsonData](
     id: StagePath.Stage,
     result: T,
-    commitMessage: Option[T => String]
+    commitMessage: Option[T -> String]
 )(using ctx: FlowContext, fc: FlowControl): Unit =
-  val resultJson = writeToString(result)(using summon[JsonData[T]].codec)
+  val resultJson =
+    JsonCodec.writeString(result)(using summon[JsonData[T]].codec)
   // Fresh runtime tokens rather than the body's: recording + committing is the
   // runtime's own privileged step, not part of the user body. `InStage` is for
   // the cheap-model commit-message fallback, `WorkspaceWrite` for the
@@ -216,8 +214,8 @@ private def recordAndCommit[T: JsonData](
   // may already have committed this entry): log at DEBUG, never fail the stage.
   ctx.runtimeGit.commit(message) match
     case Right(()) => ()
-    case Left(_) =>
-      log.debug("stage {} commit was empty (already recorded?)", id.name)
+    case Left(_)   =>
+      log.debug(s"stage ${id.name} commit was empty (already recorded?)")
 
 /** Generate a commit message from the current working-tree changes via the
   * coding-role agent's cheap model (`codingAgent.cheapOneShot`), which is sent

@@ -4,11 +4,6 @@ import orca.agents.AgentInput
 import orca.json.{JsonData, given}
 
 /** The fix instruction plus the findings handed to the coding agent each round.
-  *
-  * Lives in its own compilation unit (not `ReviewLoop.scala`) because its
-  * `derives JsonData` expands the tapir `Schema` macro, whose generated code
-  * does not type-check under `ReviewLoop.scala`'s `captureChecking` mode
-  * (needed for the reviewer fan-out — ADR 0018 §6).
   */
 private[review] case class FixRequest(
     instructions: String,

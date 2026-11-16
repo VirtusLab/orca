@@ -1,6 +1,7 @@
 package orca.shell
 
 import orca.shell.cli.{Cli, CliHelp}
+import orca.effect.Processes
 import orca.shell.menu.{MenuContext, SettingsMenu, ShellMenu}
 import orca.shell.ui.{ShellOutput, ShellUi}
 import orca.shell.wizard.{FirstRun, FirstRunStatus, Wizard}
@@ -20,7 +21,7 @@ object Main:
   def main(args: Array[String]): Unit =
     given ShellEnv = ShellEnv.current()
     args.headOption match
-      case None => runInteractiveShell()
+      case None                                       => runInteractiveShell()
       case Some("--help") | Some("-h") | Some("help") =>
         println(CliHelp.topLevel)
         sys.exit(0)
@@ -57,7 +58,7 @@ object Main:
       val ui = ShellUi.make(terminal)
       val wizard = Wizard(
         ui,
-        PathProbe.resolves(_, env.workDir),
+        PathProbe.resolves(Processes.ambient, _, env.workDir),
         env.configHome.settings
       )
       runWizardIfFirstRun(wizard, env.configHome.settings)
@@ -78,7 +79,7 @@ object Main:
       case Right(FirstRunStatus.FirstRun) =>
         wizard.run(reconfigure = false).discard
       case Right(FirstRunStatus.AlreadyConfigured) => ()
-      case Left(error) =>
+      case Left(error)                             =>
         ShellOutput.error(
           s"the global settings file is malformed — ${error.message}"
         )

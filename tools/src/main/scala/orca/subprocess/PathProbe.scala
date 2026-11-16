@@ -1,7 +1,9 @@
 package orca.subprocess
 
+import orca.effect.Processes
+
 /** Whether a word resolves to a runnable command on PATH (ADR 0021 §4). Shared
-  * by [[orca.runner.StackDiscovery]]'s mechanical PATH check and the shell
+  * by [[orca.lifecycle.StackDiscovery]]'s mechanical PATH check and the shell
   * wizard's harness-binary probe.
   */
 private[orca] object PathProbe:
@@ -12,7 +14,7 @@ private[orca] object PathProbe:
     * Exit 0 ⇒ resolvable (builtins included, same environment stage-time `bash
     * -c` inherits).
     */
-  def resolves(word: String, cwd: os.Path): Boolean =
-    os.proc("bash", "-c", """command -v -- "$1"""", "bash", word)
-      .call(cwd = cwd, check = false, stdout = os.Pipe, stderr = os.Pipe)
+  def resolves(procs: Processes, word: String, cwd: os.Path): Boolean =
+    procs
+      .call(Seq("bash", "-c", """command -v -- "$1"""", "bash", word), cwd)
       .exitCode == 0

@@ -1,8 +1,7 @@
 package orca.backend
 
 import orca.subprocess.PipedCliProcess
-
-import ox.discard
+import orca.safe.prelude.discard
 
 /** The line-oriented source a [[orca.backend.DecodedTurn]] drives: a primary
   * line stream, an optional secondary diagnostic stream, a way to stop it, and

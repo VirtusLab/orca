@@ -59,7 +59,7 @@ private[shell] case class SessionIndex private (
     */
   def resolve(selector: Option[String]): Either[String, SessionSelection] =
     selector match
-      case None => newest
+      case None    => newest
       case Some(s) =>
         SessionRef.parse(s) match
           case Some(ref) => byRef(ref, s)
@@ -96,7 +96,7 @@ private[shell] case class SessionIndex private (
         )
       case (_, Nil) => resolveByName(selector, byName)
       case (Nil, _) => resolveByBranch(selector, byBranch)
-      case _ =>
+      case _        =>
         Left(
           s"'$selector' names both a session and a branch; ${SessionIndex.pickFromList}"
         )

@@ -1,16 +1,17 @@
 package orca.tools
 
-import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import orca.{OrcaFlowException, WorkspaceWrite}
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.subprocess.{CliResult, CliRunner}
 import orca.util.TextUtil
-import ox.sleep
-import ox.resilience.{ResultPolicy, RetryConfig, retry}
+import orca.json.JsonCodec
+import orca.concurrency
+import orca.concurrency.{nanoTime, retry, sleep}
+import ox.resilience.RetryConfig
 import ox.scheduling.Schedule
+import orca.safe.prelude.{DurationInt, NonFatal}
 
-import scala.concurrent.duration.{DurationInt, FiniteDuration}
-import scala.util.control.NonFatal
+import scala.concurrent.duration.FiniteDuration
 
 case class IssueHandle(owner: String, repo: String, number: Int):
   /** Canonical GitHub short-form `<owner>/<repo>#<number>`. */
@@ -206,7 +207,7 @@ trait GitHubTool:
             else
               availability() match
                 case GitHubAvailability.Available(host, _, _) => Right(host)
-                case GitHubAvailability.Unavailable(why) =>
+                case GitHubAvailability.Unavailable(why)      =>
                   Left(why.explanation)
           handle <- PrHandle.from(host, issue.owner, issue.repo, issue.number)
         yield handle
@@ -310,7 +311,7 @@ trait GitHubTool:
   */
 private[orca] class OsGitHubTool(
     cli: CliRunner,
-    workDir: os.Path = os.pwd,
+    workDir: os.Path,
     pollInterval: FiniteDuration = 30.seconds,
     events: OrcaListener = OrcaListener.noop,
     readRetry: Schedule = OsGitHubTool.defaultReadRetry
@@ -323,9 +324,9 @@ private[orca] class OsGitHubTool(
     * i.e. an `OrcaFlowException`) under a bounded backoff.
     */
   private val readRetryConfig: RetryConfig[Throwable, String] =
-    RetryConfig(
+    concurrency.retryConfig(
       readRetry,
-      ResultPolicy.retryWhen[Throwable, String](
+      concurrency.retryWhen[Throwable, String](
         _.isInstanceOf[OrcaFlowException]
       )
     )
@@ -336,14 +337,13 @@ private[orca] class OsGitHubTool(
     * start is not retried, as in [[readRetryConfig]].
     */
   private val probeRetryConfig: RetryConfig[Throwable, CliResult] =
-    RetryConfig(
+    concurrency.retryConfig(
       readRetry,
-      ResultPolicy(
+      concurrency.resultPolicy(
         isSuccess = r =>
           r.exitCode == 0 || (classifyFailure(r) match
             case GhFailure.Hard      => true
-            case GhFailure.Transient => false
-          ),
+            case GhFailure.Transient => false),
         isWorthRetrying = _ => false
       )
     )
@@ -354,9 +354,9 @@ private[orca] class OsGitHubTool(
     originUrl() match
       case OriginProbe.GitUnusable(reason) => Unavailable(GitUnusable(reason))
       case OriginProbe.NoOrigin            => Unavailable(NoRemote)
-      case OriginProbe.Origin(url) =>
+      case OriginProbe.Origin(url)         =>
         OsGitTool.remoteHost(url) match
-          case None => Unavailable(NoHost(url))
+          case None       => Unavailable(NoHost(url))
           case Some(host) =>
             credential(host) match
               case CredentialProbe.Present => repoGhResolves(host)
@@ -423,7 +423,7 @@ private[orca] class OsGitHubTool(
         GitHubUnavailable.Unreachable(gitHost, reason)
       )
     tryRepoView() match
-      case Left(reason) => unreachable(reason)
+      case Left(reason)                      => unreachable(reason)
       case Right(view) if view.exitCode != 0 =>
         unreachable(
           ghReason(
@@ -443,7 +443,7 @@ private[orca] class OsGitHubTool(
     */
   private def repoFromView(stdout: String): Either[String, GitHubAvailability] =
     try
-      val url = readFromString[GhRepoViewJson](stdout).url
+      val url = JsonCodec.readString[GhRepoViewJson](stdout).url
       url.stripSuffix("/").stripSuffix(".git") match
         case RepoUrlPattern(host, owner, repo) =>
           Right(
@@ -557,7 +557,9 @@ private[orca] class OsGitHubTool(
       "--json",
       "number,url"
     )
-    readFromString[List[GhPrListJson]](output).headOption
+    JsonCodec
+      .readString[List[GhPrListJson]](output)
+      .headOption
       .flatMap(entry => PrHandle.fromUrl(entry.url))
 
   /** gh's fully qualified `HOST/OWNER/REPO` `--repo` form. */
@@ -567,7 +569,7 @@ private[orca] class OsGitHubTool(
   def readIssue(issue: IssueHandle): Issue =
     val target = GhTarget(issue)
     val output = ghReadApi(target.host, target.issuePath)
-    val parsed = readFromString[GhIssueJson](output)
+    val parsed = JsonCodec.readString[GhIssueJson](output)
     Issue(
       title = parsed.title,
       body = parsed.body.getOrElse(""),
@@ -586,8 +588,10 @@ private[orca] class OsGitHubTool(
 
   private def readCommentsAt(target: GhTarget): List[Comment] =
     val output = ghReadApi(target.host, "--paginate", target.commentsPath)
-    readFromString[List[GhCommentJson]](output).map: c =>
-      Comment(author = c.user.login, body = c.body)
+    JsonCodec
+      .readString[List[GhCommentJson]](output)
+      .map: c =>
+        Comment(author = c.user.login, body = c.body)
 
   def updatePr(pr: PrHandle, title: String, body: String)(using
       ws: WorkspaceWrite
@@ -672,7 +676,7 @@ private[orca] class OsGitHubTool(
       target: GhTarget
   ): List[GhIdentifiedCommentJson] =
     val output = ghReadApi(target.host, "--paginate", target.commentsPath)
-    readFromString[List[GhIdentifiedCommentJson]](output)
+    JsonCodec.readString[List[GhIdentifiedCommentJson]](output)
 
   /** PATCH an existing issue/PR comment body via the REST API. */
   private def patchComment(target: GhTarget, id: Long, body: String): Unit =
@@ -695,7 +699,7 @@ private[orca] class OsGitHubTool(
       "--json",
       "statusCheckRollup"
     )
-    val rollup = readFromString[GhCheckRollup](output)
+    val rollup = JsonCodec.readString[GhCheckRollup](output)
     val outcome = aggregateOutcome(rollup.statusCheckRollup)
     val log = rollup.statusCheckRollup
       .map: c =>
@@ -703,7 +707,7 @@ private[orca] class OsGitHubTool(
           // Called out explicitly so the log distinguishes an unrecognised
           // shape from a real CI failure.
           case CheckState.Unknown(raw) => s"unknown ($raw)"
-          case _ =>
+          case _                       =>
             c.conclusion.orElse(c.state).orElse(c.status).getOrElse("?")
         s"${c.name.getOrElse("?")}: $tag"
       .mkString("\n")
@@ -714,7 +718,7 @@ private[orca] class OsGitHubTool(
       timeout: FiniteDuration,
       noChecksGrace: FiniteDuration = 90.seconds
   ): Either[BuildWaitFailed, BuildStatus] =
-    val start = System.nanoTime()
+    val start = nanoTime()
     val deadline = start + timeout.toNanos
     val noChecksDeadline = start + noChecksGrace.toNanos
 
@@ -723,7 +727,7 @@ private[orca] class OsGitHubTool(
       // `buildStatus` already retries transient gh/GitHub blips internally; a
       // failure here means the read failed past that budget.
       val status = buildStatus(pr)
-      val now = System.nanoTime()
+      val now = nanoTime()
       // Sticky watermark: once one non-empty rollup is seen, the "no CI
       // configured" hypothesis is disproven, so a later transient empty rollup
       // can't fire NoChecksConfigured. Driven by structured `checkCount`, not
@@ -897,7 +901,7 @@ private[orca] object OsGitHubTool:
     * schedule.
     */
   val defaultReadRetry: Schedule =
-    Schedule.exponentialBackoff(1.second).maxRetries(4)
+    concurrency.exponentialBackoff(1.second).maxRetries(4)
 
   // --- Recoverable `gh pr create` stderr/stdout predicates ---
   //

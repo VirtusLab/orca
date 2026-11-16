@@ -1,5 +1,6 @@
 package orca.runner
 
+import orca.lifecycle.RoleOverrides
 import orca.{BranchNamingStrategy, ConfigHome, OrcaArgs, StackSettings}
 import orca.backend.Interaction
 import orca.events.{OrcaListener, PricingTable}

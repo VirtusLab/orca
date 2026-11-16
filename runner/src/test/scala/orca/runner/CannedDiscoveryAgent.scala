@@ -1,5 +1,6 @@
 package orca.runner
 
+import orca.lifecycle.{StackDiscoveryReply, StackDiscoveryResult}
 import orca.agents.{Agent, BackendTag, ClaudeAgent}
 import orca.testkit.{ScriptedBackend, TestAgent}
 

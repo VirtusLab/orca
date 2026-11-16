@@ -6,8 +6,7 @@ import orca.agents.{Agent, BackendTag, SessionId, WireSessionId}
 import orca.backend.{Dispatch, IdScheme, ResumeOrigin, SessionSupport}
 import orca.runlog.TestRunLog
 import orca.sessions.SessionRecord
-import orca.tools.OsGitTool
-import orca.testkit.{ScriptedBackend, TempDirs, TestAgent}
+import orca.testkit.{Effects, ScriptedBackend, TempDirs, TestAgent}
 
 /** Tests for `agent.session(name, seed)` get-or-create, keyed by the name and
   * the stage that minted it (ADR 0018 §2.6).
@@ -62,10 +61,11 @@ class SessionTest extends FunSuite:
         new TestFlowContext(
           new EventDispatcher(listeners),
           "p",
-          wiredGit = Some(new OsGitTool(dir))
+          wiredGit = Some(Effects.gitTool(dir))
         ),
         new TestFlowControl(
-          orca.progress.ProgressStore.default(dir, RunKey.of("p")),
+          orca.progress.ProgressStore
+            .default(Effects.fs, dir, RunKey.of("p")),
           log
         )
       )
@@ -495,9 +495,11 @@ class SessionTest extends FunSuite:
           agent.session("planner", seed = "brief").chat.id.value
         stage[String]("Implement", commitMessage):
           throw new RuntimeException(mint())
-    new OsGitTool(run.dir).discardUncommitted(orca.tools.UntrackedFiles.Remove)(
-      using WorkspaceWrite.unsafe
-    )
+    Effects
+      .gitTool(run.dir)
+      .discardUncommitted(orca.tools.UntrackedFiles.Remove)(using
+        WorkspaceWrite.unsafe
+      )
 
     val reMinted = inRun(run.dir):
       stage("Implement", commitMessage)(mint())
@@ -514,9 +516,11 @@ class SessionTest extends FunSuite:
     val minted =
       inRun(run.dir)(agent.session("implementer", seed = "brief").chat.id.value)
     os.write.over(run.dir / "dirty.txt", "uncommitted")
-    new OsGitTool(run.dir).ensureClean("orca: pre-resume")(using
-      WorkspaceWrite.unsafe
-    )
+    Effects
+      .gitTool(run.dir)
+      .ensureClean("orca: pre-resume")(using
+        WorkspaceWrite.unsafe
+      )
     assertEquals(records(run.dir).map(_.id), List(minted))
 
   private def uncommitted(dir: os.Path): String =

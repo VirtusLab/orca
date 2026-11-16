@@ -38,5 +38,4 @@ private[plan] class CannedResult[T: JsonData](value: T):
           tools = turn.config.tools
         )
       )
-      ScriptedBackend.json(value)
-    )
+      ScriptedBackend.json(value))

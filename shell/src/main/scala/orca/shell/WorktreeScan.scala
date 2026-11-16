@@ -1,5 +1,6 @@
 package orca.shell
 
+import orca.effect.{FileSystem, Processes}
 import orca.OrcaDir
 import orca.tools.Worktrees
 
@@ -57,7 +58,7 @@ private[shell] object WorktreeScan:
     val root = OrcaDir.worktreesPath(workDir)
     ScanDirs(
       workDir,
-      Worktrees
+      Worktrees(Processes.ambient, FileSystem.ambient)
         .list(workDir)
         .filter(_ / os.up == root)
         // Decorate-sort-undecorate: `sortBy` re-evaluates its key on every

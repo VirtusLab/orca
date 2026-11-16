@@ -1,12 +1,8 @@
 package orca.backend.codex.jsonl
 
 import orca.events.{Usage}
-import orca.json.RawJson
-
-import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
-import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
-
-import scala.util.control.NonFatal
+import orca.json.{JsonCodec, RawJson}
+import orca.safe.prelude.NonFatal
 
 /** One event parsed off codex's stdout when it runs with `exec --json`.
   *
@@ -102,7 +98,7 @@ private[codex] object InboundEvent:
     * callers decide whether to skip or fail.
     */
   def parse(line: String): InboundEvent =
-    val envelope = readFromString[TopEnvelope](line)
+    val envelope = JsonCodec.readString[TopEnvelope](line)
     envelope.`type` match
       case "thread.started" => parseThreadStarted(line)
       case "turn.started"   => TurnStarted
@@ -114,11 +110,11 @@ private[codex] object InboundEvent:
       case other            => Unknown(other)
 
   private def parseThreadStarted(line: String): InboundEvent =
-    val wire = readFromString[ThreadStartedWire](line)
+    val wire = JsonCodec.readString[ThreadStartedWire](line)
     ThreadStarted(wire.thread_id, wire.model)
 
   private def parseTurnCompleted(line: String): InboundEvent =
-    val wire = readFromString[TurnCompletedWire](line)
+    val wire = JsonCodec.readString[TurnCompletedWire](line)
     val u = wire.usage.getOrElse(UsageWire())
     TurnCompleted(
       // Every axis is worth decoding here: codex emits no cost, so the price
@@ -138,15 +134,15 @@ private[codex] object InboundEvent:
     )
 
   private def parseError(line: String): InboundEvent =
-    val wire = readFromString[ErrorWire](line)
+    val wire = JsonCodec.readString[ErrorWire](line)
     Error(wire.message.getOrElse(""))
 
   private def parseTurnFailed(line: String): InboundEvent =
-    val wire = readFromString[TurnFailedWire](line)
+    val wire = JsonCodec.readString[TurnFailedWire](line)
     TurnFailed(wire.error.flatMap(_.message).getOrElse(""))
 
   private def parseItem(line: String): Item =
-    val wire = readFromString[ItemWire](line)
+    val wire = JsonCodec.readString[ItemWire](line)
     val item = wire.item
     item.`type` match
       case "agent_message" =>
@@ -199,7 +195,7 @@ private[codex] object InboundEvent:
     if trimmed == "null" || trimmed.isEmpty then None
     else
       try
-        val wire = readFromString[McpResultWire](trimmed)
+        val wire = JsonCodec.readString[McpResultWire](trimmed)
         val joined = wire.content
           .flatMap(c => c.text.filter(_ => c.`type` == "text"))
           .mkString
@@ -212,13 +208,12 @@ private[codex] object InboundEvent:
 
   // --- Wire shapes ---
 
-  private case class TopEnvelope(`type`: String)
-      derives ConfiguredJsonValueCodec
+  private case class TopEnvelope(`type`: String) derives JsonCodec
 
   private case class ThreadStartedWire(
       thread_id: String,
       model: Option[String] = None
-  ) derives ConfiguredJsonValueCodec
+  ) derives JsonCodec
 
   private case class UsageWire(
       input_tokens: Option[Long] = None,
@@ -226,22 +221,21 @@ private[codex] object InboundEvent:
       cache_write_input_tokens: Option[Long] = None,
       output_tokens: Option[Long] = None,
       reasoning_output_tokens: Option[Long] = None
-  ) derives ConfiguredJsonValueCodec
+  ) derives JsonCodec
 
   private case class TurnCompletedWire(usage: Option[UsageWire] = None)
-      derives ConfiguredJsonValueCodec
+      derives JsonCodec
 
-  private case class ErrorWire(message: Option[String] = None)
-      derives ConfiguredJsonValueCodec
+  private case class ErrorWire(message: Option[String] = None) derives JsonCodec
 
   private case class TurnFailedErrorWire(message: Option[String] = None)
-      derives ConfiguredJsonValueCodec
+      derives JsonCodec
 
   private case class TurnFailedWire(error: Option[TurnFailedErrorWire] = None)
-      derives ConfiguredJsonValueCodec
+      derives JsonCodec
 
   private case class FileChangeWire(path: String, kind: String)
-      derives ConfiguredJsonValueCodec
+      derives JsonCodec
 
   private case class ItemBody(
       id: String,
@@ -256,9 +250,9 @@ private[codex] object InboundEvent:
       tool: Option[String] = None,
       arguments: Option[RawJson] = None,
       result: Option[RawJson] = None
-  ) derives ConfiguredJsonValueCodec
+  ) derives JsonCodec
 
-  private case class ItemWire(item: ItemBody) derives ConfiguredJsonValueCodec
+  private case class ItemWire(item: ItemBody) derives JsonCodec
 
   /** Subset of the MCP `tools/call` result we extract for display — just the
     * `content` array. `isError` is read off the item's top-level `status` field
@@ -266,9 +260,9 @@ private[codex] object InboundEvent:
     */
   private case class McpResultWire(
       content: List[McpContentWire] = Nil
-  ) derives ConfiguredJsonValueCodec
+  ) derives JsonCodec
 
   private case class McpContentWire(
       `type`: String,
       text: Option[String] = None
-  ) derives ConfiguredJsonValueCodec
+  ) derives JsonCodec

@@ -1,0 +1,4 @@
+<!-- No appenders: logs are discarded unless a test attaches one. -->
+<configuration>
+  <root level="WARN"/>
+</configuration>

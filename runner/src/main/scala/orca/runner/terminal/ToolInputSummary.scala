@@ -110,7 +110,7 @@ private[terminal] object ToolInputSummary:
         maxLength
       )
     case HeadlineKind.Command => CommandHeadline.render(value, maxLength)
-    case HeadlineKind.Search =>
+    case HeadlineKind.Search  =>
       Text.oneLine(scopedPattern(value, json, workDir), maxLength)
     case HeadlineKind.Plain => Text.oneLine(value, maxLength)
 
@@ -197,7 +197,7 @@ private[terminal] object ToolInputSummary:
         json.charAt(i) match
           case '"' =>
             findStringEnd(json, i + 1) match
-              case None => names.reverse
+              case None      => names.reverse
               case Some(end) =>
                 val isKey = depth == 1 &&
                   json.startsWith(":", skipSpaces(json, end + 1))

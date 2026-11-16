@@ -54,7 +54,7 @@ private[claude] final class ClaudeDecoder(outputSchema: Option[String])
           state.copy(responseIds = state.responseIds ++ messageId),
           content
         )
-      case InboundMessage.User(content) => userMessage(state, content)
+      case InboundMessage.User(content)  => userMessage(state, content)
       case result: InboundMessage.Result =>
         if result.isError then resultError(state, result)
         else resultSuccess(state, result)
@@ -143,7 +143,7 @@ private[claude] final class ClaudeDecoder(outputSchema: Option[String])
   ): TurnEvent =
     PermissionRefusal.toolName(body) match
       case Some(tool) if isError => TurnEvent.ToolDenied(tool)
-      case _ =>
+      case _                     =>
         TurnEvent.ToolResult(
           // claude's tool_result block carries only a tool_use_id, not the
           // name — the grammar legalizes None here (see TurnEvent).

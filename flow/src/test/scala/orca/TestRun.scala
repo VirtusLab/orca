@@ -7,8 +7,7 @@ import orca.events.EventDispatcher
 import orca.progress.{BranchMode, ProgressHeader, ProgressStore}
 import orca.review.ReviewerCatalog
 import orca.sessions.TestSessionStore
-import orca.testkit.GitRepo
-import orca.tools.OsGitTool
+import orca.testkit.{Effects, GitRepo}
 
 /** A test run's control and context, provided as givens by `import run.given`,
   * over the repo at `dir`.
@@ -36,9 +35,9 @@ object TestRun:
       startingCommitUsable: Boolean = true
   ): TestRun =
     val dir = GitRepo.seeded()
-    val git = new OsGitTool(dir)
+    val git = Effects.gitTool(dir)
     val runKey = RunKey.of(userPrompt)
-    val store = ProgressStore.default(dir, runKey)
+    val store = ProgressStore.default(Effects.fs, dir, runKey)
     given WorkspaceWrite = WorkspaceWrite.unsafe
     // The seed commit stands in for the commit a real run binds at.
     val headCommit = git.headCommit().get

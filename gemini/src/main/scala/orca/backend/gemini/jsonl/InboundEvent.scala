@@ -1,10 +1,7 @@
 package orca.backend.gemini.jsonl
 
 import orca.events.Usage
-import orca.json.RawJson
-
-import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
-import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
+import orca.json.{JsonCodec, RawJson}
 
 /** Typed classification of a `message` event's `role` field. gemini spells the
   * assistant side `model`/`assistant` across versions, so any *present* value
@@ -74,7 +71,7 @@ private[gemini] object InboundEvent:
     * skip or fail.
     */
   def parse(line: String): InboundEvent =
-    val envelope = readFromString[TopEnvelope](line)
+    val envelope = JsonCodec.readString[TopEnvelope](line)
     envelope.`type` match
       case "init"        => parseInit(line)
       case "message"     => parseMessage(line)
@@ -85,11 +82,11 @@ private[gemini] object InboundEvent:
       case other         => Unknown(other)
 
   private def parseInit(line: String): InboundEvent =
-    val w = readFromString[InitWire](line)
+    val w = JsonCodec.readString[InitWire](line)
     Init(w.session_id, w.model)
 
   private def parseMessage(line: String): InboundEvent =
-    val w = readFromString[MessageWire](line)
+    val w = JsonCodec.readString[MessageWire](line)
     Message(roleOf(w.role), w.content.getOrElse(""))
 
   /** Classify the wire `role` — see [[Role]]. Operates on the `Option` so a
@@ -101,7 +98,7 @@ private[gemini] object InboundEvent:
     case None         => Role.Unknown
 
   private def parseToolUse(line: String): InboundEvent =
-    val w = readFromString[ToolUseWire](line)
+    val w = JsonCodec.readString[ToolUseWire](line)
     ToolUse(
       toolName = w.tool_name.getOrElse(""),
       toolId = w.tool_id.getOrElse(""),
@@ -109,7 +106,7 @@ private[gemini] object InboundEvent:
     )
 
   private def parseToolResult(line: String): InboundEvent =
-    val w = readFromString[ToolResultWire](line)
+    val w = JsonCodec.readString[ToolResultWire](line)
     ToolResult(
       toolId = w.tool_id.getOrElse(""),
       status = ToolStatus.of(w.status),
@@ -117,11 +114,11 @@ private[gemini] object InboundEvent:
     )
 
   private def parseError(line: String): InboundEvent =
-    val w = readFromString[ErrorWire](line)
+    val w = JsonCodec.readString[ErrorWire](line)
     Error(w.message.getOrElse(""))
 
   private def parseResult(line: String): InboundEvent =
-    val w = readFromString[ResultWire](line)
+    val w = JsonCodec.readString[ResultWire](line)
     val s = w.stats.getOrElse(StatsWire())
     Result(
       Usage.inclusiveInput(
@@ -143,8 +140,7 @@ private[gemini] object InboundEvent:
 
   // --- Wire shapes ---
 
-  private case class TopEnvelope(`type`: String)
-      derives ConfiguredJsonValueCodec
+  private case class TopEnvelope(`type`: String) derives JsonCodec
 
   /** `session_id` is required (no default): missing it throws
     * `JsonReaderException` rather than silently becoming `Init("")`.
@@ -152,27 +148,26 @@ private[gemini] object InboundEvent:
   private case class InitWire(
       session_id: String,
       model: Option[String] = None
-  ) derives ConfiguredJsonValueCodec
+  ) derives JsonCodec
 
   private case class MessageWire(
       role: Option[String] = None,
       content: Option[String] = None
-  ) derives ConfiguredJsonValueCodec
+  ) derives JsonCodec
 
   private case class ToolUseWire(
       tool_name: Option[String] = None,
       tool_id: Option[String] = None,
       parameters: Option[RawJson] = None
-  ) derives ConfiguredJsonValueCodec
+  ) derives JsonCodec
 
   private case class ToolResultWire(
       tool_id: Option[String] = None,
       status: Option[String] = None,
       output: Option[String] = None
-  ) derives ConfiguredJsonValueCodec
+  ) derives JsonCodec
 
-  private case class ErrorWire(message: Option[String] = None)
-      derives ConfiguredJsonValueCodec
+  private case class ErrorWire(message: Option[String] = None) derives JsonCodec
 
   // `total_tokens` is decoded only as the cross-check `Usage.inclusiveInput`
   // runs against the axes above; no orca axis is derived from it.
@@ -182,9 +177,9 @@ private[gemini] object InboundEvent:
       cached: Option[Long] = None,
       cached_input_tokens: Option[Long] = None,
       total_tokens: Option[Long] = None
-  ) derives ConfiguredJsonValueCodec
+  ) derives JsonCodec
 
   private case class ResultWire(
       status: Option[String] = None,
       stats: Option[StatsWire] = None
-  ) derives ConfiguredJsonValueCodec
+  ) derives JsonCodec

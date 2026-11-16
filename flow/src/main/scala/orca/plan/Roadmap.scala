@@ -48,7 +48,7 @@ object Roadmap:
     def reviewed(
         critiqueInstructions: String = PlanPrompts.RoadmapCritique,
         reviseInstructions: String = PlanPrompts.RoadmapRevise,
-        variant: Agent[?] => Agent[?] = identity
+        variant: Agent[?] => Agent[?] = a => a
     )(using FlowContext, InStage): WithChat[Roadmap] =
       Plan.critiqueThenRevise(
         planned,

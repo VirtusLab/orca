@@ -2,11 +2,11 @@ package orca.events
 
 import orca.agents.Model
 
-import java.util.concurrent.atomic.AtomicReference
+import orca.concurrency.Ref
 
 /** Listener that accumulates `TokensUsed` events along three independent axes —
-  * by `agent`, by `model` and by `role`. State is held in an `AtomicReference`
-  * so the tracker is safe to register across concurrent LLM calls.
+  * by `agent`, by `model` and by `role`. Safe to register across concurrent LLM
+  * calls.
   *
   * Cost comes off the event, resolved once for the whole attempt by
   * [[CostResolvingDispatcher]] — the tracker prices nothing, so it cannot
@@ -59,53 +59,53 @@ class CostTracker extends OrcaListener:
     ): Map[K, Tally] =
       buckets.updatedWith(key)(prev => Some(prev.fold(tally)(_ + tally)))
 
-  private val state: AtomicReference[State] = AtomicReference(State())
+  // Updated from concurrent turns by a pure fold. An actor would make every
+  // emitter wait on one thread and need a scope this listener doesn't have.
+  private val state: Ref[State] = Ref(State())
 
   def onEvent(event: OrcaEvent): Unit = event match
     // `turn` is ignored: a retry's tokens count toward the attempt's spend like
     // any other turn's.
     case OrcaEvent.TokensUsed(t, cost) =>
-      val _ = state.updateAndGet(
-        _.record(t.agent, t.model, t.usage, cost, t.role)
-      )
+      state.update(_.record(t.agent, t.model, t.usage, cost, t.role))
     case _ => ()
 
   /** Usage accumulated across every call, regardless of axis. */
   def total: Usage =
-    state.get().byAgent.values.foldLeft(Usage.empty)(_ + _.usage)
+    state.get.byAgent.values.foldLeft(Usage.empty)(_ + _.usage)
 
   /** Total cost across every call. `None` when no call surfaced a cost
     * (reported or estimable).
     */
-  def totalCost: Option[Cost] = totalCostOf(state.get())
+  def totalCost: Option[Cost] = totalCostOf(state.get)
 
   private def totalCostOf(s: State): Option[Cost] =
     s.byAgent.values.flatMap(_.cost).reduceOption(_ + _)
 
   /** Per-agent usage breakdown — keyed by `Agent.name`. */
   def perAgent: Map[String, Usage] =
-    state.get().byAgent.view.mapValues(_.usage).toMap
+    state.get.byAgent.view.mapValues(_.usage).toMap
 
   /** Per-agent cost breakdown. Missing entry means that agent's calls had
     * neither reported nor estimable cost.
     */
-  def perAgentCost: Map[String, Cost] = costsOf(state.get().byAgent)
+  def perAgentCost: Map[String, Cost] = costsOf(state.get.byAgent)
 
   /** Per-model usage breakdown. `None` collects calls whose model the backend
     * didn't report and the caller didn't pin in `AgentConfig`.
     */
   def perModel: Map[Option[Model], Usage] =
-    state.get().byModel.view.mapValues(_.usage).toMap
+    state.get.byModel.view.mapValues(_.usage).toMap
 
   /** Per-model cost breakdown. Same key semantics as [[perModel]]. */
-  def perModelCost: Map[Option[Model], Cost] = costsOf(state.get().byModel)
+  def perModelCost: Map[Option[Model], Cost] = costsOf(state.get.byModel)
 
   /** Per-role usage breakdown ([[orca.agents.Agent.role]], e.g.
     * `Some("reviewer")`). `None` collects calls from every agent with no role
     * tag — the common case.
     */
   def perRole: Map[Option[String], Usage] =
-    state.get().byRole.view.mapValues(_.usage).toMap
+    state.get.byRole.view.mapValues(_.usage).toMap
 
   private def costsOf[K](buckets: Map[K, Tally]): Map[K, Cost] =
     buckets.collect { case (key, Tally(_, Some(cost))) => key -> cost }
@@ -134,7 +134,7 @@ class CostTracker extends OrcaListener:
     * Empty string when no `TokensUsed` events have been observed.
     */
   def summary: String =
-    val s = state.get()
+    val s = state.get
     if s.byAgent.isEmpty then ""
     else
       val roleLines = s.byRole.toList

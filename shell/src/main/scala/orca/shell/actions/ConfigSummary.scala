@@ -1,7 +1,8 @@
 package orca.shell.actions
 
+import orca.effect.{FileSystem, Processes}
 import orca.gitref.Head
-import orca.runner.RoleAgents
+import orca.lifecycle.RoleAgents
 import orca.settings.{AgentSpec, StackKey}
 import orca.tools.OsGitTool
 
@@ -30,8 +31,8 @@ private[shell] object ConfigSummary:
       ConfigAction.show(globalSettingsPath),
       ConfigAction.showProject(workDir)
     ) match
-      case (Left(error), _) => s"agents: $error"
-      case (_, Left(error)) => s"agents: $error"
+      case (Left(error), _)                => s"agents: $error"
+      case (_, Left(error))                => s"agents: $error"
       case (Right(global), Right(project)) =>
         val roles = List(
           "planning" -> RoleAgents.projectOverGlobal(
@@ -56,7 +57,9 @@ private[shell] object ConfigSummary:
     */
   def branchLine(workDir: os.Path): Option[String] =
     scala.util
-      .Try(new OsGitTool(workDir).head())
+      .Try(
+        new OsGitTool(workDir, Processes.ambient, FileSystem.ambient).head()
+      )
       .toOption
       .map:
         case Head.OnBranch(name) => s"branch: ${name.value}"

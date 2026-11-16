@@ -137,7 +137,7 @@ private[menu] object AuthoringMenu:
       ShellEnv
   ): Option[FlowDestination] =
     ui.input("Filename for the new flow", default = Some("new-flow.sc")) match
-      case UiOutcome.Cancelled => None
+      case UiOutcome.Cancelled      => None
       case UiOutcome.Selected(name) =>
         val prepared =
           for

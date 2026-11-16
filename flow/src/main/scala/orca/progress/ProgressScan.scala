@@ -1,6 +1,7 @@
 package orca.progress
 
 import orca.OrcaDir
+import orca.effect.FileSystem
 import orca.json.JsonFile
 
 /** A progress log found by [[ProgressScan.progressLogs]]: its path plus the
@@ -19,7 +20,7 @@ case class ScannedProgressLog(path: os.Path, header: ProgressHeader)
   * committed symlink could otherwise redirect the read outside the working
   * tree.
   */
-object ProgressScan:
+private[orca] final class ProgressScan(fs: FileSystem):
 
   /** Every `<key>.progress.json` file under `<workDir>/.orca/runs/`, in
     * `os.list` order — callers impose their own ordering (e.g. newest by
@@ -28,12 +29,12 @@ object ProgressScan:
   def progressLogPaths(workDir: os.Path): List[os.Path] =
     val root = OrcaDir.rootPath(workDir)
     val runs = OrcaDir.runsPath(workDir)
-    if os.isLink(root) || !os.isDir(root) || os.isLink(runs) || !os.isDir(runs)
+    if fs.isLink(root) || !fs.isDir(root) || fs.isLink(runs) || !fs.isDir(runs)
     then Nil
     else
-      os.list(runs)
+      fs.list(runs)
         .iterator
-        .filter(p => !os.isLink(p) && os.isFile(p) && OrcaDir.isProgressLog(p))
+        .filter(p => !fs.isLink(p) && fs.isFile(p) && OrcaDir.isProgressLog(p))
         .toList
 
   /** [[progressLogPaths]] with each log's header parsed. A log that does not
@@ -44,7 +45,7 @@ object ProgressScan:
     */
   def progressLogs(workDir: os.Path): List[ScannedProgressLog] =
     progressLogPaths(workDir).flatMap: path =>
-      JsonFile.read[ProgressLog](path) match
+      JsonFile(fs).read[ProgressLog](path) match
         case JsonFile.Read.Loaded(log) =>
           Some(ScannedProgressLog(path, log.header))
         case _ => None

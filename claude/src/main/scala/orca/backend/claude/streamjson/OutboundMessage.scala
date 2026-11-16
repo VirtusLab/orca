@@ -1,7 +1,6 @@
 package orca.backend.claude.streamjson
 
-import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
-import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
+import orca.json.JsonCodec
 
 /** Messages orca writes to claude's stdin.
   *
@@ -15,7 +14,7 @@ private[claude] object OutboundMessage:
   /** A user message carrying `text`, as a single NDJSON line (no trailing
     * newline — the caller appends one).
     */
-  def userText(text: String): String = writeToString(
+  def userText(text: String): String = JsonCodec.writeString(
     UserTextWire(
       `type` = "user",
       message = UserTextInner(
@@ -28,14 +27,14 @@ private[claude] object OutboundMessage:
   // --- Wire shapes ---
 
   private case class UserTextContent(`type`: String, text: String)
-      derives ConfiguredJsonValueCodec
+      derives JsonCodec
 
   private case class UserTextInner(
       role: String,
       content: List[UserTextContent]
-  ) derives ConfiguredJsonValueCodec
+  ) derives JsonCodec
 
   private case class UserTextWire(
       `type`: String,
       message: UserTextInner
-  ) derives ConfiguredJsonValueCodec
+  ) derives JsonCodec

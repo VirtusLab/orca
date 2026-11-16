@@ -9,7 +9,6 @@ import orca.agents.{
   ToolSet,
   TurnDispatch
 }
-import orca.subprocess.CliResult
 import orca.backend.{
   AskUserChannel,
   LiveTurn,
@@ -23,8 +22,11 @@ import orca.backend.{
   TurnResources
 }
 import orca.backend.mcp.{AskUserMcpServer, AskUserSession}
+import orca.effect.{FileSystem, Network}
 import orca.subprocess.CliRunner
-import ox.{Ox, discard}
+import orca.concurrency.defaultBufferCapacity
+import orca.safe.prelude.discard
+import ox.Ox
 
 /** Gemini backend. Both autonomous and interactive paths drive `gemini -p
   * <prompt> --output-format stream-json` over stdio: stdout JSONL is parsed
@@ -45,12 +47,11 @@ import ox.{Ox, discard}
   * Autonomous calls skip the bridge.
   */
 private[orca] class GeminiBackend(
+    net: Network,
+    fs: FileSystem,
     cli: CliRunner,
-    /** Fixed at construction; every spawn runs in this directory. The `os.pwd`
-      * default serves bare/test construction; the runtime passes the flow's
-      * real `workDir`.
-      */
-    override val workDir: os.Path = os.pwd
+    /** Fixed at construction; every spawn runs in this directory. */
+    override val workDir: os.Path
 ) extends AgentBackend[BackendTag.Gemini.type]:
 
   /** Gemini's sessions are server-side and durable: the client→server map is
@@ -83,7 +84,9 @@ private[orca] class GeminiBackend(
     SessionSupport.durable(
       IdScheme.ServerMinted,
       id =>
-        val result = listSessionsOutput()
+        // gemini keeps sessions per project directory, so this lists only
+        // those the spawns in `workDir` can resume.
+        val result = cli.run(GeminiSessionList.argv, cwd = workDir)
         result.exitCode == 0 &&
         GeminiSessionList.mentions(result.stdout, id)
     )
@@ -103,9 +106,11 @@ private[orca] class GeminiBackend(
     import turn.*
     val askUser: Option[AskUserSession] =
       Option.when(mode.isInteractive):
-        val session = AskUserSession.allocate()
+        val session = AskUserSession.allocate(net)
         TurnResources
-          .useCloseable(GeminiSettings.register(workDir, session.server.url))
+          .useCloseable(
+            GeminiSettings.register(fs, workDir, session.server.url)
+          )
           .discard
         session
     SubprocessSpawn.open("gemini", events) {
@@ -133,9 +138,3 @@ private[orca] class GeminiBackend(
           askUser.fold(AskUserChannel.Unavailable)(AskUserChannel.Mcp(_))
       )
     }
-
-  /** `gemini --list-sessions` in [[workDir]]: gemini keeps sessions per project
-    * directory, so it lists only those the spawns in [[workDir]] can resume.
-    */
-  private[gemini] def listSessionsOutput(): CliResult =
-    cli.run(GeminiSessionList.argv, cwd = workDir)

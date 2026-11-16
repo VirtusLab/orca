@@ -50,12 +50,11 @@ final class Chat[B <: BackendTag] private[agents] (
     * holds the conversation; otherwise throws [[AgentOnOtherBackend]].
     */
   def withAgent(f: Agent[?] => Agent[?]): Chat[B] =
-    val variant = f(agent)
-    if !agent.sharesBackendWith(variant) then throw new AgentOnOtherBackend
     // `Agent[?]`, not `Agent[B]`: a lambda can't be typed against the `B` of a
-    // wildcard `Chat[?]` held in a `def` (such as a role agent's chat). The
-    // shared backend instance above guarantees the same `B`.
-    new Chat(variant.asInstanceOf[Agent[B]], id, origin)
+    // wildcard `Chat[?]` held in a `def` (such as a role agent's chat).
+    val variant =
+      agent.sibling(f(agent)).getOrElse(throw new AgentOnOtherBackend)
+    new Chat(variant, id, origin)
 
   /** Fix the output type for structured turns continuing this conversation —
     * both `autonomous` and `interactive` modes, mirroring `agent.resultAs[O]`.
@@ -68,7 +67,7 @@ final class Chat[B <: BackendTag] private[agents] (
     * opened or lost.
     */
   private[agents] def requireHeld(): Unit = origin match
-    case ChatOrigin.Minted => ()
+    case ChatOrigin.Minted  => ()
     case ChatOrigin.Adopted =>
       agent.dispatchFor(id) match
         case Dispatch.Resume(_, _) => ()

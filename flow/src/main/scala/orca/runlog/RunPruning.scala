@@ -1,26 +1,19 @@
 package orca.runlog
 
 import orca.{OrcaDir, RunKey}
+import orca.effect.FileSystem
+import orca.safe.prelude.given
 
-import scala.util.control.NonFatal
+import orca.safe.prelude.NonFatal
 
 /** Bounds `.orca/cache/runs/` by run count and by trace count, and removes the
   * cache files older versions wrote (ADR 0025). Runs at attempt start. Each
   * delete is guarded on its own, so a file a concurrent cleanup got to first
   * does not stop the rest.
   */
-private[runlog] object RunPruning:
-
-  /** How many of the newest runs, and of the newest runs that recorded a
-    * session, are kept. Resumable runs are kept regardless.
-    */
-  val MaxKept: Int = 20
-
-  /** How many attempts' trace logs are kept, across all runs. Counted apart
-    * from runs, since resumable runs are kept without limit and traces are the
-    * bulk of the cache.
-    */
-  val MaxKeptTraces: Int = 40
+private[runlog] final class RunPruning(fs: FileSystem):
+  import RunPruning.*
+  private val reader = RunEventReader(fs)
 
   /** Deletes the run directories under `cacheRuns` outside the kept sets. Kept:
     * the `current` run's, every run with a session minted after its last
@@ -42,9 +35,9 @@ private[runlog] object RunPruning:
     */
   def pruneTraces(cacheRuns: os.Path): Unit =
     val byAttempt = listed(cacheRuns)
-      .filter(os.isDir(_, followLinks = false))
+      .filter(p => fs.isDir(p) && !fs.isLink(p))
       .flatMap(listed)
-      .filter(os.isFile(_, followLinks = false))
+      .filter(p => fs.isFile(p) && !fs.isLink(p))
       .groupBy(OrcaDir.attemptIdOf)
       .collect:
         case (Some(id), files) => id -> files
@@ -63,7 +56,7 @@ private[runlog] object RunPruning:
     removeGuarded(cache / "attempts")
     listed(cache / "runs")
       .filter(f =>
-        f.last.endsWith(".sessions.json") && os.isFile(f, followLinks = false)
+        f.last.endsWith(".sessions.json") && fs.isFile(f) && !fs.isLink(f)
       )
       .foreach(removeGuarded)
 
@@ -79,7 +72,7 @@ private[runlog] object RunPruning:
 
   private def runsNewestFirst(cacheRuns: os.Path, current: RunKey): List[Run] =
     listed(cacheRuns)
-      .filter(d => os.isDir(d, followLinks = false) && d.last != current.value)
+      .filter(d => fs.isDir(d) && !fs.isLink(d) && d.last != current.value)
       .map(runOf)
       .sortBy(_.modifiedAt)(using Ordering[Option[Long]].reverse)
 
@@ -90,7 +83,7 @@ private[runlog] object RunPruning:
 
   private def runOf(dir: os.Path): Run =
     val log = dir / OrcaDir.EventLogName
-    val events = RunEventReader.readOnly(
+    val events = reader.readOnly(
       log,
       Set(classOf[RunEvent.SessionMinted], classOf[RunEvent.RunSucceeded])
     )
@@ -99,12 +92,29 @@ private[runlog] object RunPruning:
       else if events.exists(_.isInstanceOf[RunEvent.SessionMinted]) then
         Sessions.Recorded
       else Sessions.NoneRecorded
-    Run(dir, Option.when(os.isFile(log))(os.mtime(log)), sessions)
+    Run(
+      dir,
+      Option.when(fs.isFile(log))(fs.modifiedAt(log).toEpochMilli),
+      sessions
+    )
 
   private def listed(dir: os.Path): List[os.Path] =
-    try if os.isDir(dir) then os.list(dir).toList else Nil
+    try if fs.isDir(dir) then fs.list(dir).toList else Nil
     catch case NonFatal(_) => Nil
 
   private def removeGuarded(path: os.Path): Unit =
-    try os.remove.all(path)
+    try fs.removeAll(path)
     catch case NonFatal(_) => ()
+
+private[runlog] object RunPruning:
+
+  /** How many of the newest runs, and of the newest runs that recorded a
+    * session, are kept. Resumable runs are kept regardless.
+    */
+  val MaxKept: Int = 20
+
+  /** How many attempts' trace logs are kept, across all runs. Counted apart
+    * from runs, since resumable runs are kept without limit and traces are the
+    * bulk of the cache.
+    */
+  val MaxKeptTraces: Int = 40

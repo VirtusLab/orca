@@ -1,6 +1,7 @@
 package orca.backend.claude
 
 import orca.agents.Model
+import orca.effect.Network
 import orca.events.{TurnDebit, Usage}
 import orca.testkit.Usages.usage
 import orca.{AgentTurnFailed, OrcaFlowException, OrcaInteractiveCancelled}
@@ -277,7 +278,7 @@ class ClaudeTurnTest extends munit.FunSuite:
     live.cancel()
     live.awaitResult() match
       case Left(_: OrcaInteractiveCancelled) => ()
-      case other =>
+      case other                             =>
         fail(s"expected Left(OrcaInteractiveCancelled), got: $other")
     assertEquals(process.sigIntCount, 1)
 
@@ -440,7 +441,7 @@ class ClaudeTurnTest extends munit.FunSuite:
     supervised:
       given BufferCapacity = BufferCapacity(8)
       val process = new FakePipedCliProcess()
-      val askUser = AskUserSession.allocate()
+      val askUser = AskUserSession.allocate(Network.ambient)
       val live =
         ClaudeTurn(process, askUser = AskUserChannel.Mcp(askUser))
       val bridge = askUser.bridge

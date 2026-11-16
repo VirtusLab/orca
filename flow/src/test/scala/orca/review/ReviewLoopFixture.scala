@@ -141,7 +141,7 @@ private[review] class FakeAgent(
         onRun()
         Option(remaining.poll()) match
           case Some(r) => ScriptedBackend.result(r.json)
-          case None =>
+          case None    =>
             throw new AgentTurnFailed(
               s"$name: no reply scripted",
               TurnDebit.Unobserved

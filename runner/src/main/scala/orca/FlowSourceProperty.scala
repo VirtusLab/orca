@@ -30,7 +30,7 @@ private[orca] object FlowSourceProperty:
       .flatMap: raw =>
         decode(raw) match
           case Right(source) => Some(source)
-          case Left(error) =>
+          case Left(error)   =>
             System.err.println(
               s"[orca] ignoring the $Name property ($error); the orca shell " +
                 "won't offer to resume this run"

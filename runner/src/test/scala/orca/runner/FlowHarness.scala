@@ -1,5 +1,6 @@
 package orca.runner
 
+import orca.lifecycle.RoleOverrides
 import orca.{
   AgentSet,
   BranchNamingStrategy,

@@ -42,12 +42,6 @@ private[orca] final class WiredAgents(
     */
   def all: List[Agent[?]] = byTag.values.toList
 
-  /** True when `a` runs on one of the five wired backends — a wired agent
-    * itself or a builder-derived sibling (`_.claude.opus`, `.withReadOnly`, …).
-    * Used only for the foreign-lead warning.
-    */
-  def isWiredBackend(a: Agent[?]): Boolean = all.exists(_.sharesBackendWith(a))
-
 private[orca] object WiredAgents:
 
   /** Wire the attempt's agents, filling every `None` override with the

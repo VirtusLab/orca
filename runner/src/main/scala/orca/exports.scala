@@ -1,5 +1,10 @@
 package orca
 
+// Re-exporting `@assumeSafe` definitions (`JsonData`) needs an experimental
+// scope; without one, 3.10.0 reports "class assumeSafe is marked @experimental"
+// with no position.
+import language.experimental.captureChecking
+
 // Re-exports the user-facing surface from each sub-package so flow scripts can
 // pull everything in with a single `import orca.{*, given}`. Mirrors the public
 // API the README documents; deliberately omits customisation-only knobs (e.g.

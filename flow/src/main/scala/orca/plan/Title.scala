@@ -23,6 +23,6 @@ object Title:
     def decodeValue(in: JsonReader, default: Title): Title =
       in.readString(default)
     def encodeValue(value: Title, out: JsonWriter): Unit = out.writeVal(value)
-    def nullValue: Title = null.asInstanceOf[Title]
+    def nullValue: Title = null
 
-  given Schema[Title] = Schema.string[Title]
+  given Schema[Title] = orca.json.JsonData.stringSchema[Title]

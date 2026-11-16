@@ -1,6 +1,6 @@
 package orca.backend.opencode
 
-import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
+import orca.json.JsonCodec
 import orca.backend.{
   AgentResult,
   ApprovalDecision,
@@ -28,7 +28,7 @@ import orca.backend.opencode.OpencodeApi.{
 
 import ox.Ox
 
-import scala.util.control.NonFatal
+import orca.safe.prelude.NonFatal
 
 /** Decodes one OpenCode turn off its `GET /event` SSE stream (ADR 0014): SSE
   * frame → [[OpencodeEvent]] → `TurnEvent`, deriving the [[AgentResult]] from
@@ -124,7 +124,7 @@ private[opencode] final class OpencodeDecoder(
       // wrongly colliding two distinct id-less parts (BB5).
       partId match
         case Some(id) if state.startedTools.contains(id) => Step.continue(state)
-        case Some(id) =>
+        case Some(id)                                    =>
           Step.continue(
             state.copy(startedTools = state.startedTools + id),
             call
@@ -176,7 +176,7 @@ private[opencode] final class OpencodeDecoder(
   private def finishTurn(state: State): Out =
     state.info.flatMap(_.error) match
       case Some(err) => failTurn(state, OpencodeEvent.errorMessage(err))
-      case None =>
+      case None      =>
         if state.info.isEmpty && state.text.isEmpty then
           failTurn(state, "session went idle without an assistant message")
         else settleResult(state)
@@ -245,7 +245,7 @@ private[opencode] final class OpencodeDecoder(
   private def replyToQuestion(req: QuestionRequest)(answer: String): Unit =
     val _ = http.postJson(
       s"/question/${req.id}/reply",
-      writeToString(QuestionReplyBody(List(List(answer))))
+      JsonCodec.writeString(QuestionReplyBody(List(List(answer))))
     )
 
   private def replyToPermission(
@@ -256,7 +256,7 @@ private[opencode] final class OpencodeDecoder(
       case ApprovalDecision.Deny  => PermissionReply.Reject
     val _ = http.postJson(
       s"/permission/${req.id}/reply",
-      writeToString(PermissionReplyBody(verdict))
+      JsonCodec.writeString(PermissionReplyBody(verdict))
     )
 
 private[opencode] object OpencodeDecoder:

@@ -16,7 +16,7 @@ import orca.shell.{ShellEnv, Tier, WorktreeScan}
 import orca.shell.run.LaunchResult
 import orca.shell.sessions.ObservedStatus
 import orca.shell.ui.ShellUi
-import orca.subprocess.TtyProbe
+import orca.runner.terminal.TtyProbe
 
 /** Exit codes shared by every subcommand (ADR 0021 §10/§4). */
 private[shell] object ExitCodes:
@@ -129,7 +129,7 @@ private[shell] object Cli:
           Console.err.println(usage)
           ExitCodes.UsageError
         case Right(exitCode: Int) => exitCode
-        case Right(_) =>
+        case Right(_)             =>
           ExitCodes.ActionFailed // unreachable: every @main below returns Int
 
   /** `orca <name> --help`'s text: `name`'s own mainargs-rendered signature and

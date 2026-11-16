@@ -21,7 +21,7 @@ enum ChannelEvent:
     * user typed; the backend feeds the answer back as a tool result. Only
     * emitted by turns whose `LiveTurn.canAskUser` is true.
     */
-  case UserQuestion private[orca] (question: String, respond: String => Unit)
+  case UserQuestion private[orca] (question: String, respond: String -> Unit)
 
 /** Channel's answer to a [[ChannelEvent.ApproveTool]] prompt. */
 enum ApprovalDecision:

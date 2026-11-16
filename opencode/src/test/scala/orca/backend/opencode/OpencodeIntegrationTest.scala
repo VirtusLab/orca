@@ -9,9 +9,10 @@ import orca.agents.{
   WireSessionId,
   ToolSet
 }
+import orca.effect.Network
 import orca.events.OrcaListener
 import orca.subprocess.OsProcCliRunner
-import orca.testkit.TempDirs
+import orca.testkit.{Effects, TempDirs}
 
 /** End-to-end tests against a real `opencode serve`. Gated on the
   * `ORCA_INTEGRATION` environment variable, so `sbt test` without it behaves as
@@ -44,7 +45,12 @@ class OpencodeIntegrationTest extends munit.FunSuite:
       body: ox.Ox ?=> OpencodeBackend => Unit
   ): Unit =
     SupervisedBackend.using(
-      OpencodeBackend(OsProcCliRunner, workDir, OrcaListener.noop)
+      OpencodeBackend(
+        OsProcCliRunner(Effects.procs),
+        workDir,
+        OrcaListener.noop,
+        Network.ambient
+      )
     )(body)
 
   private def fresh = SessionId.fresh[BackendTag.Opencode.type]

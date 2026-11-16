@@ -2,17 +2,11 @@ package orca.backend.gemini
 
 import orca.OrcaFlowException
 import orca.backend.mcp.{AskUserMcpServer, McpHost}
-import orca.json.RawJson
+import orca.effect.FileSystem
+import orca.json.{JsonCodec, RawJson}
+import orca.safe.prelude.given
 
-import com.github.plokhotnyuk.jsoniter_scala.core.{
-  JsonValueCodec,
-  readFromString,
-  writeToString
-}
-import com.github.plokhotnyuk.jsoniter_scala.macros.{
-  CodecMakerConfig,
-  JsonCodecMaker
-}
+import com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec
 
 import scala.util.Try
 
@@ -38,7 +32,7 @@ import scala.util.Try
 private[gemini] object GeminiSettings:
 
   private given objCodec: JsonValueCodec[Map[String, RawJson]] =
-    JsonCodecMaker.make
+    JsonCodec.make
 
   /** One `mcpServers.<name>` entry. jsoniter emits fields in declaration order,
     * so this serialises as `{"httpUrl":…,"timeout":…}`. Decoding rejects any
@@ -46,7 +40,7 @@ private[gemini] object GeminiSettings:
     */
   private case class OrcaServerEntry(httpUrl: String, timeout: Long)
   private given entryCodec: JsonValueCodec[OrcaServerEntry] =
-    JsonCodecMaker.make(CodecMakerConfig.withSkipUnexpectedFields(false))
+    JsonCodec.make(using JsonCodec.config.withSkipUnexpectedFields(false))
 
   /** `timeout` (ms) mirrors [[orca.backend.mcp.AskUserMcpServer.ToolTimeout]]
     * (rendered as ms/sec across backends; keep in sync). Without it gemini
@@ -65,34 +59,34 @@ private[gemini] object GeminiSettings:
     * Throws [[OrcaFlowException]] when `.gemini` or `settings.json` is a
     * symlink, before touching either.
     */
-  def register(workDir: os.Path, mcpUrl: String): AutoCloseable =
+  def register(
+      fs: FileSystem,
+      workDir: os.Path,
+      mcpUrl: String
+  ): AutoCloseable^{fs} =
     val dir = workDir / ".gemini"
     val file = dir / "settings.json"
-    refuseSymlink(dir)
-    refuseSymlink(file)
-    val dirExisted = os.exists(dir)
-    val fileExisted = os.exists(file)
-    val prior = if fileExisted then withoutStaleOrca(os.read(file)) else None
+    refuseSymlink(fs, dir)
+    refuseSymlink(fs, file)
+    val dirExisted = fs.exists(dir)
+    val fileExisted = fs.exists(file)
+    val prior = if fileExisted then withoutStaleOrca(fs.read(file)) else None
     // A settings file holding only a stale entry means orca created `.gemini`.
     val orcaCreatedDir = !dirExisted || (fileExisted && prior.isEmpty)
-    os.write.over(
-      file,
-      withOrca(prior.getOrElse("{}"), mcpUrl),
-      createFolders = true
-    )
+    fs.writeOver(file, withOrca(prior.getOrElse("{}"), mcpUrl))
     () =>
       prior match
-        case Some(content) => os.write.over(file, content)
-        case None          => os.remove(file): Unit
-      if orcaCreatedDir && os.exists(dir) && os.list(dir).isEmpty then
-        os.remove(dir): Unit
+        case Some(content) => fs.writeOver(file, content)
+        case None          => fs.remove(file)
+      if orcaCreatedDir && fs.exists(dir) && fs.list(dir).isEmpty then
+        fs.remove(dir)
 
   /** A committed `.gemini` symlink would redirect the write outside the working
-    * tree, e.g. into the user's global `~/.gemini`. `os.isLink` does not follow
+    * tree, e.g. into the user's global `~/.gemini`. `isLink` does not follow
     * links, so each path component is checked on its own.
     */
-  private def refuseSymlink(path: os.Path): Unit =
-    if os.isLink(path) then
+  private def refuseSymlink(fs: FileSystem, path: os.Path): Unit =
+    if fs.isLink(path) then
       throw new OrcaFlowException(
         s"$path is a symlink — refusing to register orca's ask_user MCP " +
           "server through it. Replace it with a regular file or directory, or " +
@@ -105,10 +99,14 @@ private[gemini] object GeminiSettings:
   private[gemini] def withOrca(content: String, mcpUrl: String): String =
     // Serialized through a typed codec, not interpolated, so a URL containing
     // `"` or `\` stays valid JSON.
-    val entry = RawJson(writeToString(OrcaServerEntry(mcpUrl, TimeoutMillis)))
-    val top = readFromString[Map[String, RawJson]](content)
+    val entry = RawJson(
+      JsonCodec.writeString(OrcaServerEntry(mcpUrl, TimeoutMillis))
+    )
+    val top = JsonCodec.readString[Map[String, RawJson]](content)
     val servers = mcpServers(top) + (AskUserMcpServer.ServerName -> entry)
-    writeToString(top + ("mcpServers" -> RawJson(writeToString(servers))))
+    JsonCodec.writeString(
+      top + ("mcpServers" -> RawJson(JsonCodec.writeString(servers)))
+    )
 
   /** The settings without an `orca` entry that [[withOrca]] wrote; `None` when
     * nothing else is left. The content is returned verbatim when there is no
@@ -116,7 +114,7 @@ private[gemini] object GeminiSettings:
     * other shape is the user's own and is kept.
     */
   private[gemini] def withoutStaleOrca(content: String): Option[String] =
-    val top = readFromString[Map[String, RawJson]](content)
+    val top = JsonCodec.readString[Map[String, RawJson]](content)
     val servers = mcpServers(top)
     if !servers.get(AskUserMcpServer.ServerName).exists(isOrcaEntry) then
       Some(content)
@@ -124,13 +122,13 @@ private[gemini] object GeminiSettings:
       val rest = servers - AskUserMcpServer.ServerName
       val stripped =
         if rest.isEmpty then top - "mcpServers"
-        else top + ("mcpServers" -> RawJson(writeToString(rest)))
-      Option.when(stripped.nonEmpty)(writeToString(stripped))
+        else top + ("mcpServers" -> RawJson(JsonCodec.writeString(rest)))
+      Option.when(stripped.nonEmpty)(JsonCodec.writeString(stripped))
 
   private def mcpServers(top: Map[String, RawJson]): Map[String, RawJson] =
     top
       .get("mcpServers")
-      .map(raw => readFromString[Map[String, RawJson]](raw.value))
+      .map(raw => JsonCodec.readString[Map[String, RawJson]](raw.value))
       .getOrElse(Map.empty)
 
   /** Whether `raw` has the shape [[withOrca]] writes, pointing at an
@@ -138,5 +136,5 @@ private[gemini] object GeminiSettings:
     * with a different timeout matches.
     */
   private def isOrcaEntry(raw: RawJson): Boolean =
-    Try(readFromString[OrcaServerEntry](raw.value)).toOption
+    Try(JsonCodec.readString[OrcaServerEntry](raw.value)).toOption
       .exists(entry => McpHost.isHostUrl(entry.httpUrl))

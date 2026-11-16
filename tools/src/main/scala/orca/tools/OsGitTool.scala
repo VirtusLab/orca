@@ -3,16 +3,14 @@ package orca.tools
 import orca.{OrcaFlowException, WorkspaceWrite}
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.gitref.{BranchName, CommitHash, Head}
-import orca.subprocess.{CappedResult, QuietProc}
-import ox.either
-import ox.either.ok
+import orca.effect.{FileSystem, Processes}
+import orca.subprocess.{CappedResult, CliResult}
 
-import java.nio.charset.StandardCharsets
-import scala.util.control.NonFatal
+import orca.safe.prelude.{*, given}
 
-/** `RuntimeGit` implementation that shells out to the `git` CLI via os-lib.
-  * Contract semantics are specified on the trait; this class handles the
-  * subprocess plumbing.
+/** `RuntimeGit` implementation that shells out to the `git` CLI. Contract
+  * semantics are specified on the trait; this class handles the subprocess
+  * plumbing.
   *
   * `events` publishes [[OrcaEvent.Step]]s for operations shown in the event log
   * (branch switches, commits, pushes), and [[OrcaEvent.Bookkeeping]] for the
@@ -20,7 +18,9 @@ import scala.util.control.NonFatal
   * `OrcaListener.noop`.
   */
 private[orca] class OsGitTool(
-    workDir: os.Path = os.pwd,
+    workDir: os.Path,
+    procs: Processes,
+    fs: FileSystem,
     events: OrcaListener = OrcaListener.noop
 ) extends RuntimeGit:
 
@@ -118,12 +118,12 @@ private[orca] class OsGitTool(
     */
   private def gitWithDiagnostics(args: String*): String =
     val result = gitProc("git" +: args)
-    if result.exitCode == 0 then result.out.text()
+    if result.exitCode == 0 then result.stdout
     else
       throw OrcaFlowException(
         OsGitTool.gitFailureMessage(
           args.mkString(" "),
-          result.err.text(),
+          result.stderr,
           gitDiagnostics()
         )
       )
@@ -136,9 +136,9 @@ private[orca] class OsGitTool(
   private def gitDiagnostics(): OsGitTool.GitDiagnostics =
     def tryRun(args: String*): String =
       val r = gitProc("git" +: args)
-      if r.exitCode == 0 then r.out.text()
+      if r.exitCode == 0 then r.stdout
       else
-        s"<git ${args.mkString(" ")} failed (exit ${r.exitCode}): ${r.err.text().trim}>"
+        s"<git ${args.mkString(" ")} failed (exit ${r.exitCode}): ${r.stderr.trim}>"
     OsGitTool.GitDiagnostics(
       status = tryRun("status", "--porcelain"),
       fsck = tryRun("fsck", "--no-progress")
@@ -156,7 +156,7 @@ private[orca] class OsGitTool(
       step("Pushed to origin")
       Right(())
     else
-      val stderr = result.err.text()
+      val stderr = result.stderr
       // Order isn't load-bearing: `push()` targets a single ref per call, so
       // its stderr carries at most one rejection reason (divergence vs. policy
       // decline are mutually exclusive for the same ref).
@@ -170,7 +170,7 @@ private[orca] class OsGitTool(
   def head(): Head =
     val result = gitProc(Seq("git", "symbolic-ref", "--quiet", "HEAD"))
     result.exitCode match
-      case 0 => Head.OnBranch(OsGitTool.branchOf(result.out.text().trim))
+      case 0 => Head.OnBranch(OsGitTool.branchOf(result.stdout.trim))
       case 1 =>
         Head.Detached(
           headCommit().getOrElse(
@@ -210,13 +210,13 @@ private[orca] class OsGitTool(
       gitProc(Seq("git", "symbolic-ref", "--quiet", OsGitTool.OriginHeadRef))
     result.exitCode match
       case 0 =>
-        Some(result.out.text().trim.stripPrefix(OsGitTool.OriginRefsPrefix))
+        Some(result.stdout.trim.stripPrefix(OsGitTool.OriginRefsPrefix))
       case 1 => None
       // Not `fail`: this refusal stops a run at preflight, so it names the fix.
       case exit =>
         throw OrcaFlowException(
           s"cannot read the default branch from origin/HEAD (exit $exit: " +
-            s"${result.err.text().trim}) — fix the repository, or reset " +
+            s"${result.stderr.trim}) — fix the repository, or reset " +
             "origin/HEAD with `git remote set-head origin -a`, and re-run"
         )
 
@@ -256,9 +256,9 @@ private[orca] class OsGitTool(
   ): Either[SnapshotFailed, Option[UncommittedSnapshot]] =
     ws.check("git.snapshotUncommitted")
     val result = gitProc(Seq("git", "stash", "create"))
-    val out = result.out.text().trim
+    val out = result.stdout.trim
     if result.exitCode != 0 then
-      Left(SnapshotFailed(s"git stash create: ${result.err.text().trim}"))
+      Left(SnapshotFailed(s"git stash create: ${result.stderr.trim}"))
     // `stash create` prints nothing when no tracked file differs from HEAD.
     else if out.isEmpty then Right(None)
     else
@@ -277,7 +277,7 @@ private[orca] class OsGitTool(
     val result =
       gitProc(Seq("git", "stash", "apply", "--index", snapshot.commit.value))
     if result.exitCode == 0 then Right(())
-    else Left(SnapshotFailed(s"git stash apply: ${result.err.text().trim}"))
+    else Left(SnapshotFailed(s"git stash apply: ${result.stderr.trim}"))
 
   def uncommittedDiff(): String = trackedDiff("HEAD")
 
@@ -422,7 +422,7 @@ private[orca] class OsGitTool(
         acc: List[OsGitTool.UntrackedPiece]
     ): List[OsGitTool.UntrackedPiece] =
       remaining match
-        case Nil => acc.reverse
+        case Nil          => acc.reverse
         case path :: rest =>
           val piece =
             if size >= budget then
@@ -439,7 +439,7 @@ private[orca] class OsGitTool(
   // would let rendering continue past a cut and put the cut marker
   // mid-document.
   private def utf8Size(piece: String): Int =
-    piece.getBytes(StandardCharsets.UTF_8).length
+    piece.getBytes(UTF_8).length
 
   /** Untracked, non-`.orca/` paths anywhere in the repository, relative to
     * `workDir`. Untracked directories are recursed into, so an entry is
@@ -520,15 +520,18 @@ private[orca] class OsGitTool(
     * path inside (`error: Could not access 'x/null'`), which takes
     * [[untrackedFileDiff]]'s failure branch. A nested repository is recognised
     * by its `.git` entry — a directory in a clone, a file in a linked worktree,
-    * hence `os.exists` rather than `os.isDir`.
+    * hence `exists` rather than `isDir`.
     *
     * Symlinks to a file or to nothing are diffable, as mode 120000.
     */
   private def undiffableReason(relPath: String): Option[String] =
-    val path = workDir / os.RelPath(relPath)
-    if os.isLink(path) && os.isDir(path) then Some("symlink to a directory")
-    else if os.exists(path / ".git") then Some("nested git repository")
-    else None
+    orca.safe.prelude.relPath(relPath).map(workDir / _) match
+      case None => Some("not a relative path")
+      case Some(path) if fs.isLink(path) && fs.isDir(path) =>
+        Some("symlink to a directory")
+      case Some(path) if fs.exists(path / ".git") =>
+        Some("nested git repository")
+      case Some(_) => None
 
   // `--end-of-options` so a `base` spelled like a flag is refused as a
   // revision rather than obeyed (`--output=<path>` would write a file).
@@ -671,8 +674,8 @@ private[orca] class OsGitTool(
     * git (or ssh it spawns) can block the flow on an interactive credential or
     * passphrase prompt.
     */
-  private def gitProc(args: Seq[String]): os.CommandResult =
-    QuietProc.call(args, cwd = workDir, env = OsGitTool.nonInteractiveEnv)
+  private def gitProc(args: Seq[String]): CliResult =
+    procs.call(args, cwd = workDir, env = OsGitTool.nonInteractiveEnv)
 
   /** Trimmed stdout of a read-only git command that exited 0; `None` on a
     * non-zero exit, empty output, or a subprocess error — the shared shape of
@@ -692,14 +695,14 @@ private[orca] class OsGitTool(
   private def probeStdout(args: Seq[String]): Option[String] =
     try
       val result = gitProc("git" +: args)
-      if result.exitCode == 0 then Some(result.out.text()) else None
+      if result.exitCode == 0 then Some(result.stdout) else None
     catch case NonFatal(_) => None
 
   /** [[gitProc]] for a command whose output size is set by what it reads rather
     * than by its arguments, keeping at most [[OsGitTool.MaxReadBytes]] of it.
     */
   private def gitProcCapped(args: Seq[String]): CappedResult =
-    QuietProc.callCapped(
+    procs.callCapped(
       args,
       maxBytes = OsGitTool.MaxReadBytes,
       cwd = workDir,
@@ -710,20 +713,20 @@ private[orca] class OsGitTool(
     * unrecoverable git failure. Callers handle the EXPECTED non-zero exits
     * (rejected push, "already exists") as `Left`s before reaching here.
     */
-  private def fail(label: String, result: os.CommandResult): Nothing =
-    failWith(label, result.exitCode, result.err.text().trim)
+  private def fail(label: String, result: CliResult): Nothing =
+    failWith(label, result.exitCode, result.stderr.trim)
 
   private def failWith(label: String, exitCode: Int, stderr: String): Nothing =
     throw OrcaFlowException(s"$label failed (exit $exitCode): $stderr")
 
   private def git(args: String*): String =
-    // Route through QuietProc so git's stderr ("Switched to a new branch",
+    // Route through `procs` so git's stderr ("Switched to a new branch",
     // etc.) is captured rather than leaked to the parent terminal, where it
     // would tear the renderer's status row. Branch-state changes surface in the
     // event log via the `step` calls in the public methods above.
     val result = gitProc("git" +: args)
     if result.exitCode != 0 then fail(s"git ${args.mkString(" ")}", result)
-    result.out.text()
+    result.stdout
 
   /** [[git]] for a command whose output is bounded only by what it reads.
     * [[marked]] stays outside rather than folded in, since
@@ -837,7 +840,7 @@ private[orca] object OsGitTool:
     * a user's custom `GIT_SSH_COMMAND` is preserved.
     */
   private[tools] val nonInteractiveEnv: Map[String, String] =
-    val baseSsh = sys.env.getOrElse("GIT_SSH_COMMAND", "ssh")
+    val baseSsh = scala.util.Properties.envOrElse("GIT_SSH_COMMAND", "ssh")
     Map(
       "GIT_TERMINAL_PROMPT" -> "0",
       "GIT_SSH_COMMAND" -> s"$baseSsh -o BatchMode=yes"

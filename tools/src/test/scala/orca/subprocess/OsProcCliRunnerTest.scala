@@ -1,7 +1,7 @@
 package orca.subprocess
 
 import orca.testkit.ProcessProbe.{alive, awaitDead, awaitTrue}
-import orca.testkit.TempDirs
+import orca.testkit.{Effects, TempDirs}
 import ox.discard
 
 class OsProcCliRunnerTest extends munit.FunSuite:
@@ -17,7 +17,7 @@ class OsProcCliRunnerTest extends munit.FunSuite:
   private def withBackgroundedChild(
       body: (PipedCliProcess, Long) => Unit
   ): Unit =
-    val proc = OsProcCliRunner.spawnPiped(
+    val proc = OsProcCliRunner(Effects.procs).spawnPiped(
       Seq("bash", "-c", "sleep 30 & echo $!; wait"),
       env = Map.empty,
       cwd = os.pwd
@@ -84,7 +84,7 @@ class OsProcCliRunnerTest extends munit.FunSuite:
     val script =
       """bash -c 'while [ ! -e "$TRIGGER" ]; do sleep 0.02; done""" +
         """; sleep 30 & echo $! > "$PIDFILE"; wait' & echo $!; wait"""
-    val proc = OsProcCliRunner.spawnPiped(
+    val proc = OsProcCliRunner(Effects.procs).spawnPiped(
       Seq("bash", "-c", script),
       env = Map("TRIGGER" -> trigger.toString, "PIDFILE" -> pidFile.toString),
       cwd = os.pwd
@@ -120,7 +120,7 @@ class OsProcCliRunnerTest extends munit.FunSuite:
     * empty stream, not a failure.
     */
   test("destroyForciblyTree on an already-exited process is a no-op"):
-    val proc = OsProcCliRunner.spawnPiped(
+    val proc = OsProcCliRunner(Effects.procs).spawnPiped(
       Seq("bash", "-c", "exit 0"),
       env = Map.empty,
       cwd = os.pwd
@@ -142,21 +142,20 @@ class OsProcCliRunnerTest extends munit.FunSuite:
   test("spawnPiped adds its cookie to the inherited environment"):
     val home = sys.env.getOrElse("HOME", "")
     assume(home.nonEmpty, "needs an inherited variable to check against")
-    val proc = OsProcCliRunner.spawnPiped(
-      Seq("bash", "-c", s"""echo "$$${EnvCookie.VarName}|$$HOME|$$EXTRA""""),
+    val proc = OsProcCliRunner(Effects.procs).spawnPiped(
+      Seq(
+        "bash",
+        "-c",
+        s"""echo "$${${EnvCookie.VarName}:+set}|$$HOME|$$EXTRA""""
+      ),
       env = Map("EXTRA" -> "from-caller"),
       cwd = os.pwd
     )
-    try
-      val cookie = proc.envCookie.getOrElse(fail("no cookie was injected"))
-      assertEquals(
-        proc.stdoutLines.next(),
-        s"${cookie.value}|$home|from-caller"
-      )
+    try assertEquals(proc.stdoutLines.next(), s"set|$home|from-caller")
     finally proc.destroyForciblyTree()
 
   test("spawnPiped hands the child's stderr to stderrLines"):
-    val proc = OsProcCliRunner.spawnPiped(
+    val proc = OsProcCliRunner(Effects.procs).spawnPiped(
       Seq("bash", "-c", "echo oops >&2"),
       cwd = os.pwd
     )
@@ -168,7 +167,7 @@ class OsProcCliRunnerTest extends munit.FunSuite:
     */
   test("output a process sends after a long silence is still read"):
     val silence = (OsPipedSubProcess.OrphanedPipeGrace * 2).toMillis / 1000.0
-    val proc = OsProcCliRunner.spawnPiped(
+    val proc = OsProcCliRunner(Effects.procs).spawnPiped(
       Seq("bash", "-c", s"sleep $silence; echo late"),
       cwd = os.pwd
     )

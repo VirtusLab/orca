@@ -1,9 +1,6 @@
 package orca.backend.claude.streamjson
 
-import orca.json.RawJson
-
-import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
-import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
+import orca.json.{JsonCodec, RawJson}
 
 /** The inner `event` of a `stream_event` message: one chunk of a partial
   * message. We route on the block-delta events (text, thinking, tool-input
@@ -23,38 +20,40 @@ private[claude] object StreamEventPayload:
 
   /** `rawJson` is the serialized value of the outer message's `event` field. */
   def parse(rawJson: String): StreamEventPayload =
-    val envelope = readFromString[EventEnvelope](rawJson)
+    val envelope = JsonCodec.readString[EventEnvelope](rawJson)
     envelope.`type` match
       case "content_block_delta" => parseBlockDelta(rawJson)
       case "content_block_start" => parseBlockStart(rawJson)
-      case "content_block_stop" =>
-        ContentBlockStop(readFromString[BlockStopWire](rawJson).index)
+      case "content_block_stop"  =>
+        ContentBlockStop(JsonCodec.readString[BlockStopWire](rawJson).index)
       case other => Unhandled(other)
 
   private def parseBlockDelta(rawJson: String): StreamEventPayload =
-    val outer = readFromString[BlockDeltaOuter](rawJson)
-    val delta = readFromString[DeltaEnvelope](outer.delta.value)
+    val outer = JsonCodec.readString[BlockDeltaOuter](rawJson)
+    val delta = JsonCodec.readString[DeltaEnvelope](outer.delta.value)
     delta.`type` match
       case "text_delta" =>
         TextDelta(
           outer.index,
-          readFromString[TextDeltaWire](outer.delta.value).text
+          JsonCodec.readString[TextDeltaWire](outer.delta.value).text
         )
       case "thinking_delta" =>
         ThinkingDelta(
           outer.index,
-          readFromString[ThinkingDeltaWire](outer.delta.value).thinking
+          JsonCodec.readString[ThinkingDeltaWire](outer.delta.value).thinking
         )
       case "input_json_delta" =>
         InputJsonDelta(
           outer.index,
-          readFromString[InputJsonDeltaWire](outer.delta.value).partial_json
+          JsonCodec
+            .readString[InputJsonDeltaWire](outer.delta.value)
+            .partial_json
         )
       case other =>
         Unhandled(s"content_block_delta.$other")
 
   private def parseBlockStart(rawJson: String): StreamEventPayload =
-    val outer = readFromString[BlockStartWire](rawJson)
+    val outer = JsonCodec.readString[BlockStartWire](rawJson)
     ContentBlockStart(
       outer.index,
       ContentBlock.parse(outer.content_block.value)
@@ -62,25 +61,20 @@ private[claude] object StreamEventPayload:
 
   // --- Wire shapes ---
 
-  private case class EventEnvelope(`type`: String)
-      derives ConfiguredJsonValueCodec
+  private case class EventEnvelope(`type`: String) derives JsonCodec
 
   private case class BlockDeltaOuter(index: Int, delta: RawJson)
-      derives ConfiguredJsonValueCodec
+      derives JsonCodec
 
-  private case class DeltaEnvelope(`type`: String)
-      derives ConfiguredJsonValueCodec
+  private case class DeltaEnvelope(`type`: String) derives JsonCodec
 
-  private case class TextDeltaWire(text: String)
-      derives ConfiguredJsonValueCodec
+  private case class TextDeltaWire(text: String) derives JsonCodec
 
-  private case class ThinkingDeltaWire(thinking: String)
-      derives ConfiguredJsonValueCodec
+  private case class ThinkingDeltaWire(thinking: String) derives JsonCodec
 
-  private case class InputJsonDeltaWire(partial_json: String)
-      derives ConfiguredJsonValueCodec
+  private case class InputJsonDeltaWire(partial_json: String) derives JsonCodec
 
   private case class BlockStartWire(index: Int, content_block: RawJson)
-      derives ConfiguredJsonValueCodec
+      derives JsonCodec
 
-  private case class BlockStopWire(index: Int) derives ConfiguredJsonValueCodec
+  private case class BlockStopWire(index: Int) derives JsonCodec

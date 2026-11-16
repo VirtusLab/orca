@@ -1,0 +1,277 @@
+package orca.lifecycle
+
+import orca.{InStage, StackSettings}
+import orca.effect.FileSystem
+import orca.agents.{Agent, Announce, PromptEvent}
+import orca.events.OrcaEvent
+import orca.json.{JsonData, given}
+import orca.settings.{SettingsEntry, StackCommand, StackKey, StackValue}
+import orca.safe.prelude.{subPath, given}
+import orca.util.{PromptResource, TextUtil}
+
+/** One command the discovery agent proposes for a gate, with the repo-relative
+  * file that justifies it and an optional free-text note (key/line/why) — the
+  * evidence that makes the written settings file reviewable (ADR 0019).
+  */
+private[orca] case class DiscoveredCommand(
+    command: String,
+    evidencePath: String,
+    evidenceNote: Option[String] = None
+) derives JsonData
+
+/** A gate's proposed commands, or a one-line reason it was left unset. The
+  * strict output schema requires BOTH keys on every gate (Options nullable —
+  * see [[orca.agents.JsonSchemaGen]]), so the agent emits `"commands": []` /
+  * `"unsetReason": null` for whichever side doesn't apply. The Scala-side
+  * defaults keep the jsoniter parse lenient about a genuinely omitted field.
+  */
+private[orca] case class DiscoveredGate(
+    commands: List[DiscoveredCommand] = Nil,
+    unsetReason: Option[String] = None
+) derives JsonData
+
+/** The discovery result proper — the private evidence-carrying sibling of
+  * [[orca.StackSettings]] (ADR 0019). Sent over the wire inside
+  * [[StackDiscoveryReply]].
+  */
+private[orca] case class StackDiscoveryResult(
+    format: DiscoveredGate,
+    lint: DiscoveredGate,
+    test: DiscoveredGate
+) derives JsonData
+
+/** Single-property envelope around [[StackDiscoveryResult]] — the actual
+  * `resultAs` payload. Claude's `--json-schema` mode surfaces the schema's
+  * top-level properties as the StructuredOutput tool's parameters, and the
+  * cheap tier (haiku) reliably misbehaves with several — stuffing the whole
+  * result under the FIRST parameter. A single-property root avoids that; it
+  * matches every other cheap-tier payload in production
+  * (`SelectedReviewers.names`, `ReviewResult.findings`).
+  */
+private[orca] case class StackDiscoveryReply(result: StackDiscoveryResult)
+    derives JsonData
+
+private[orca] object StackDiscoveryReply:
+  /** Silent — discovery narrates each written line as its own `Step`, so an
+    * auto-announced payload would compete.
+    */
+  given Announce[StackDiscoveryReply] = Announce.from(_ => "")
+
+/** Agent-based stack discovery (ADR 0019 § Auto-discovery): one read-only
+  * cheap-tier agent run proposes per-gate commands with evidence; two orca-side
+  * mechanical checks demote unresolvable ones to commented-out lines; the
+  * assembled entries render into `.orca/settings.properties`.
+  */
+private[lifecycle] object StackDiscovery:
+
+  /** The principle-based discovery prompt (no real stack→command examples, one
+    * fictional-stack example only — ADR 0019).
+    */
+  private[lifecycle] val Prompt: String =
+    PromptResource.load("/orca/lifecycle/prompts/stack-discovery.md")
+
+  /** Run discovery end to end (ADR 0019 § Auto-discovery). The cheap-tier agent
+    * run is read-only — it inspects the repo with its own tools; nothing is
+    * inlined into the prompt.
+    *
+    * `existingContent` is `FlowLifecycle`'s already-read settings-file content
+    * — passed through only to pick the accurate opening `Step` wording
+    * ([[startMessage]]).
+    *
+    * Deliberately catch-free: a discovery failure propagates and aborts the run
+    * as an ordinary surfaced setup failure, rather than degrading to an
+    * all-commented file — under the frozen-file semantics that would turn a
+    * transient outage into a permanently recorded "gates off".
+    */
+  def discover(
+      agent: Agent[?],
+      workDir: os.Path,
+      emit: OrcaEvent => Unit,
+      existingContent: Option[String],
+      fs: FileSystem,
+      onPath: (String, os.Path) => Boolean
+  )(using InStage): (StackSettings, List[SettingsEntry]) =
+    emit(OrcaEvent.Step(startMessage(existingContent)))
+    val result = agent.cheap.withReadOnly
+      .resultAs[StackDiscoveryReply]
+      .autonomous
+      .run(Prompt, PromptEvent.Suppress)
+      .result
+    val (entries, settings) = toEntries(
+      result,
+      unresolvedReason(onPath, _, workDir),
+      evidenceExists(fs, _, workDir)
+    )
+    narrateEntries(entries, emit)
+    warnDisabledGates(settings, emit)
+    (settings, entries)
+
+  /** The opening `Step`'s wording, naming why discovery is running: absent (or
+    * blank) file vs. a present file that simply names no stack line yet — the
+    * two cases `FlowLifecycle.readSettings` funnels into `NeedsDiscovery`, told
+    * apart by whether it captured any `existingContent`.
+    */
+  private[lifecycle] def startMessage(existingContent: Option[String]): String =
+    val purpose = "discovering how to format, lint & test this project"
+    existingContent match
+      case None    => s"no .orca/settings.properties — $purpose"
+      case Some(_) =>
+        s".orca/settings.properties configures no stack keys — $purpose"
+
+  /** Narrate every command/demotion entry as its own `Step` event. Unset and
+    * Off keys surface through [[warnDisabledGates]] instead.
+    */
+  private def narrateEntries(
+      entries: List[SettingsEntry],
+      emit: OrcaEvent => Unit
+  ): Unit =
+    entries.foreach:
+      case SettingsEntry.Command(key, command, comment) =>
+        emit(
+          OrcaEvent.Step(
+            s"  ${key.raw} = ${collapse(command.value)}" +
+              comment.fold("")(c => s"   # ${collapse(c)}")
+          )
+        )
+      case SettingsEntry.Demoted(key, command, reason) =>
+        emit(
+          OrcaEvent.Step(
+            s"  skipped: ${key.raw} = ${collapse(command)} (${collapse(reason)})"
+          )
+        )
+      case SettingsEntry.Unset(_, _) | SettingsEntry.Off(_) => ()
+
+  /** Emit a warning `Step` for each gate that ended up with no commands — its
+    * gate stays disabled (the file now carries a live `key = off` line for it)
+    * until the user hand-edits in a real command.
+    */
+  private def warnDisabledGates(
+      settings: StackSettings,
+      emit: OrcaEvent => Unit
+  ): Unit =
+    StackKey.values.foreach: key =>
+      if key.commandsIn(settings).isEmpty then
+        emit(
+          OrcaEvent.Step(
+            s"warning: stack settings: no ${key.raw} command — gate disabled"
+          )
+        )
+
+  /** One-physical-line guard for `Step` messages, mirroring the render-side
+    * sanitization.
+    */
+  private def collapse(s: String): String = TextUtil.collapseWhitespace(s)
+
+  /** Matches a leading `NAME=value` environment-assignment token, so `FOO=bar
+    * cargo check` resolves `cargo`, not `FOO=bar`.
+    */
+  private val AssignmentToken = "^[A-Za-z_][A-Za-z0-9_]*=".r
+
+  /** First mechanical check (ADR 0019): `None` = resolvable, `Some(reason)` =
+    * demote. Strips leading `VAR=` assignment tokens, then resolves the first
+    * remaining word via [[PathProbe]] (builtins included, the same environment
+    * stage-time `bash -c` inherits). cwd is `workDir`, so a repo-relative path
+    * like `./script.sh` resolves as it will at stage time.
+    */
+  private[lifecycle] def unresolvedReason(
+      onPath: (String, os.Path) => Boolean,
+      command: String,
+      workDir: os.Path
+  ): Option[String] =
+    // Naive whitespace tokenization: a quoted token containing spaces (e.g.
+    // `FOO="a b" cargo check`) splits mid-quote and demotes. Safe direction — a
+    // visible demoted line in the settings file, hand-fixable.
+    val words = command.trim.split("\\s+").toList.filter(_.nonEmpty)
+    words.dropWhile(w => AssignmentToken.findPrefixOf(w).isDefined) match
+      case Nil       => Some("empty command")
+      case word :: _ =>
+        if onPath(word, workDir) then None
+        else Some(s"$word: not found on PATH")
+
+  /** Second mechanical check (ADR 0019): the cited evidence file must exist
+    * inside the repo. Absolute paths and `..` traversal are rejected outright
+    * (`os.SubPath` refuses both), so an agent-proposed citation can only ever
+    * probe inside `workDir`.
+    */
+  private[lifecycle] def evidenceExists(
+      fs: FileSystem,
+      path: String,
+      workDir: os.Path
+  ): Boolean =
+    subPath(path).exists(p => fs.exists(workDir / p))
+
+  /** Assemble the agent's `result` into settings-file entries plus the
+    * [[StackSettings]] the run uses. The two mechanical checks are injected as
+    * functions so this stays pure and process-free.
+    *
+    * Per command: passing both checks → a [[SettingsEntry.Command]] carrying
+    * its evidence as the comment, and the command joins the returned settings;
+    * failing one → a [[SettingsEntry.Demoted]] with the reason. A gate that
+    * proposed no commands becomes [[SettingsEntry.Unset]]; a gate whose every
+    * command was demoted gets a trailing [[SettingsEntry.Off]], so each key has
+    * exactly one live line kind: its commands, or `off`.
+    */
+  def toEntries(
+      result: StackDiscoveryResult,
+      // Some = the demotion reason — a bare String, human-facing text for the
+      // demoted line, never branched on.
+      unresolvedReason: String => Option[String],
+      evidenceExists: String => Boolean
+  ): (List[SettingsEntry], StackSettings) =
+    def demotionReason(
+        command: StackCommand,
+        evidencePath: String
+    ): Option[String] =
+      unresolvedReason(command.value)
+        .orElse(
+          // A blank citation is checked before existence: `os.SubPath("")`
+          // resolves to the repo root, which exists, so the existence check
+          // would pass vacuously.
+          Option.when(evidencePath.isBlank)("no evidence file cited")
+        )
+        .orElse(
+          Option.when(!evidenceExists(evidencePath))(
+            s"evidence file $evidencePath not found"
+          )
+        )
+
+    def checkedEntry(key: StackKey, cmd: DiscoveredCommand): SettingsEntry =
+      def demoted(reason: String) =
+        SettingsEntry.Demoted(key, cmd.command, reason)
+      StackValue.parse(cmd.command) match
+        case StackValue.Run(command) =>
+          demotionReason(command, cmd.evidencePath) match
+            case Some(reason) => demoted(reason)
+            case None         =>
+              SettingsEntry.Command(
+                key,
+                command,
+                Some(cmd.evidencePath + cmd.evidenceNote.fold("")("; " + _))
+              )
+        case StackValue.Empty => demoted("empty command")
+        case StackValue.Off => demoted("`off` disables the gate, not a command")
+        case StackValue.CommentedOut =>
+          demoted("starts with `#`, so `bash -c` runs nothing")
+
+    def gateEntries(key: StackKey, gate: DiscoveredGate): List[SettingsEntry] =
+      if gate.commands.isEmpty then
+        List(
+          SettingsEntry
+            .Unset(key, gate.unsetReason.getOrElse("no evidence found"))
+        )
+      else
+        val checked = gate.commands.map(checkedEntry(key, _))
+        val anySurvived = checked.exists:
+          case SettingsEntry.Command(_, _, _) => true
+          case _                              => false
+        if anySurvived then checked else checked :+ SettingsEntry.Off(key)
+
+    val entries =
+      gateEntries(StackKey.Format, result.format) ++
+        gateEntries(StackKey.Lint, result.lint) ++
+        gateEntries(StackKey.Test, result.test)
+
+    val settings = StackKey.tabulate: key =>
+      entries.collect:
+        case SettingsEntry.Command(`key`, command, _) => command.value
+    (entries, settings)

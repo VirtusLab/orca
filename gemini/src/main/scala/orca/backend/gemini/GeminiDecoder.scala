@@ -132,7 +132,7 @@ private[gemini] object GeminiDecoder
     role match
       case Role.User                         => Step.continue(state)
       case Role.Assistant if content.isEmpty => Step.continue(state)
-      case Role.Assistant =>
+      case Role.Assistant                    =>
         Step.continue(
           state.copy(answer = state.answer :+ content),
           TurnEvent.AssistantTextDelta(content)
@@ -167,7 +167,7 @@ private[gemini] object GeminiDecoder
   ): Out =
     state.echoes.consume(id) match
       case Some(rest) => Step.continue(state.copy(echoes = rest))
-      case None =>
+      case None       =>
         Step.continue(
           state,
           TurnEvent.ToolResult(

@@ -54,7 +54,7 @@ private[shell] object ShellMenu:
       MainMenu.choices(continueSessionCount, resumeOffer, scanDirs.own)
     ) match
       case UiOutcome.Cancelled | UiOutcome.Selected(MenuItem.Exit) => ()
-      case UiOutcome.Selected(item) =>
+      case UiOutcome.Selected(item)                                =>
         handle(item, context, resumeOffer, scanDirs)
         loop(context)
 
@@ -82,9 +82,9 @@ private[shell] object ShellMenu:
         SettingsMenu.editSettings(ui, terminal, spawnEditor)
       case MenuItem.RediscoverStack => SettingsMenu.rediscoverStack(ui)
       case MenuItem.ViewFlow        => viewFlow(ui, context.tty)
-      case MenuItem.EditFlow =>
+      case MenuItem.EditFlow        =>
         AuthoringMenu.editFlow(ui, terminal, spawnEditor)
-      case MenuItem.RunFlow => RunMenu.runFlow(ui, terminal, launch)
+      case MenuItem.RunFlow    => RunMenu.runFlow(ui, terminal, launch)
       case MenuItem.CreateFlow =>
         AuthoringMenu.createNewFlow(ui, terminal, spawnEditor)
       case MenuItem.ForkFlow =>
@@ -133,7 +133,7 @@ private[shell] object ShellMenu:
       "Continue which session?",
       SessionPicker.sessionRows(index, expanded)
     ) match
-      case UiOutcome.Cancelled => ()
+      case UiOutcome.Cancelled                                  => ()
       case UiOutcome.Selected(SessionPicker.PickerRow.ShowMore) =>
         continueSession(ui, terminal, index, expanded = true)
       case UiOutcome.Selected(SessionPicker.PickerRow.Resume(selection)) =>

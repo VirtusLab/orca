@@ -3,8 +3,7 @@ package orca.review
 import orca.{FlowContext, OrcaFlowException}
 import orca.agents.{BackendTag, Agent}
 
-import ox.either
-import ox.either.ok
+import orca.safe.prelude.{either, ok}
 
 import scala.util.matching.Regex
 

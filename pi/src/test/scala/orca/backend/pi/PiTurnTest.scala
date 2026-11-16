@@ -258,7 +258,7 @@ class PiTurnTest extends munit.FunSuite:
     live.cancel()
     live.awaitResult() match
       case Left(_: OrcaInteractiveCancelled) => ()
-      case other =>
+      case other                             =>
         fail(s"expected cancellation after test cleanup, got $other")
 
   // Ctrl-C at an interactive prompt abandons a turn that has already been

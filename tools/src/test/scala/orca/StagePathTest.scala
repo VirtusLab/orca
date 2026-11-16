@@ -5,7 +5,9 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
   readFromString,
   writeToString
 }
+import io.circe.parser.parse
 import munit.FunSuite
+import orca.json.{JsonData, SchemaParitySuite}
 
 /** Stage path identity and its persisted form (ADR 0018 §2.1). */
 class StagePathTest extends FunSuite:
@@ -34,4 +36,26 @@ class StagePathTest extends FunSuite:
     assertEquals(
       StagePath.FlowBody.child("Implement", 0).child("Task", 1).display,
       "Implement#0/Task#1"
+    )
+
+  test("a stage's schema is an array of name-occurrence segments"):
+    val schema = summon[JsonData[StagePath.Stage]].schema
+    assertEquals(
+      SchemaParitySuite.render(schema),
+      parse("""{
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$defs": {
+          "Segment": {
+            "title": "Segment",
+            "type": "object",
+            "required": ["name", "occurrence"],
+            "properties": {
+              "name": {"type": "string"},
+              "occurrence": {"type": "integer", "format": "int32"}
+            }
+          }
+        },
+        "type": "array",
+        "items": {"$ref": "#/$defs/Segment"}
+      }""").toTry.get
     )

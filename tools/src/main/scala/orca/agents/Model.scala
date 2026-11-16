@@ -5,6 +5,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
   JsonValueCodec,
   JsonWriter
 }
+import orca.json.JsonData
 import sttp.tapir.Schema
 
 /** The concrete model id a backend served (or will serve) a call with —
@@ -30,4 +31,4 @@ object Model:
       "Model cannot decode JSON null; wrap in Option at the wire layer"
     )
 
-  given Schema[Model] = Schema.string[Model]
+  given Schema[Model] = JsonData.stringSchema[Model]

@@ -1,10 +1,7 @@
 package orca.backend.claude
 
-import com.github.plokhotnyuk.jsoniter_scala.core.{
-  JsonValueCodec,
-  writeToString
-}
-import com.github.plokhotnyuk.jsoniter_scala.macros.JsonCodecMaker
+import com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec
+import orca.json.JsonCodec
 
 import scala.concurrent.duration.FiniteDuration
 
@@ -17,10 +14,10 @@ private[claude] object McpConfig:
   /** One `mcpServers.<name>` entry; `timeout` is in milliseconds. */
   private case class Entry(`type`: String, url: String, timeout: Long)
   private case class File(mcpServers: Map[String, Entry])
-  private given JsonValueCodec[File] = JsonCodecMaker.make
+  private given JsonValueCodec[File] = JsonCodec.make
 
   def render(servers: Map[String, HttpServer]): String =
-    writeToString(
+    JsonCodec.writeString(
       File(
         servers.map((name, s) =>
           name -> Entry("http", s.url, s.timeout.toMillis)

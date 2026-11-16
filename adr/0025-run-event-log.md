@@ -42,7 +42,8 @@ stay as log files; the event log points to them.
 - **One writer per attempt, asynchronous.** The attempt keeps an in-memory
   projection of the log, loaded from the file at start (empty if absent). The
   projection is an immutable value held by an actor; the run reads it through
-  that actor. A second actor appends events to the file in the background.
+  that actor. The actor queues each event on a channel, and one writer fork
+  drains it, appending to the file in the background.
   Writes lost in a crash are acceptable: this is a cache.
 - **Run boundary in the log.** A run of the same prompt reuses the key and the
   file. Success appends `RunSucceeded`; session lookup ignores everything before
@@ -85,7 +86,7 @@ stay as log files; the event log points to them.
 - The session store's writes are no longer a read-modify-write of one file, so
   `upsert` drops `WorkspaceWrite`; the actor serialises updates.
 - Queued appends are lost when the attempt's scope ends, so finishing an
-  attempt waits for the appender's queue to empty.
+  attempt closes the queue and waits for the writer to drain it.
 - No compatibility with existing cache files is owed; old manifests stop being
   listed.
 - Supersedes ADR 0021 §8's file layout (manifest and cost log) and the location

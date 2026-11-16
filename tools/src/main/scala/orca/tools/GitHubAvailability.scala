@@ -48,7 +48,7 @@ enum GitHubUnavailable:
     * its own next action to.
     */
   def explanation: String = this match
-    case NoRemote => "this checkout has no git remote"
+    case NoRemote        => "this checkout has no git remote"
     case NotGitHub(host) =>
       s"origin is on $host, which gh holds no credential for — if it is a " +
         s"GitHub Enterprise host, `gh auth login --hostname $host` lets orca " +
@@ -56,5 +56,5 @@ enum GitHubUnavailable:
     case NoHost(remote) =>
       s"origin is a local remote ($remote), not a GitHub repository"
     case Unreachable(host, reason) => s"cannot reach GitHub ($host): $reason"
-    case GitUnusable(reason) =>
+    case GitUnusable(reason)       =>
       s"could not run git to find the remote: $reason"

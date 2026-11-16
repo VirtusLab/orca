@@ -18,9 +18,8 @@ import orca.backend.{
 import orca.backend.mcp.AskUserMcpServer
 import orca.subprocess.PipedCliProcess
 import orca.backend.codex.jsonl.{FileChangeDetail, InboundEvent, Item}
+import orca.json.JsonCodec
 
-import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
-import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 import ox.Ox
 
 /** Decodes one `codex exec --json` turn: JSONL → [[InboundEvent]] →
@@ -113,7 +112,7 @@ private[codex] final class CodexDecoder(
         state,
         TurnEvent.AssistantToolCall(
           toolName = "bash",
-          rawInput = writeToString(BashInput(command))
+          rawInput = JsonCodec.writeString(BashInput(command))
         )
       )
     case Item.FileChange(_, changes, _) =>
@@ -121,7 +120,7 @@ private[codex] final class CodexDecoder(
         state,
         TurnEvent.AssistantToolCall(
           toolName = "file_change",
-          rawInput = writeToString(FileChangeInput(changes.map(toWire)))
+          rawInput = JsonCodec.writeString(FileChangeInput(changes.map(toWire)))
         )
       )
     case Item.McpToolCall(id, server, tool, _, _, _)
@@ -195,7 +194,7 @@ private[codex] final class CodexDecoder(
         // Matched a suppressed ask_user call started above; drop the mirrored
         // completion.
         case Some(rest) => Step.continue(state.copy(echoes = rest))
-        case None =>
+        case None       =>
           Step.continue(
             state,
             TurnEvent.ToolResult(
@@ -295,13 +294,13 @@ private[codex] object CodexDecoder:
     * input, so we wrap the command string in a one-key object the renderer can
     * introspect.
     */
-  private case class BashInput(command: String) derives ConfiguredJsonValueCodec
+  private case class BashInput(command: String) derives JsonCodec
 
   private case class FileChangeWire(path: String, kind: String)
-      derives ConfiguredJsonValueCodec
+      derives JsonCodec
 
   private case class FileChangeInput(changes: List[FileChangeWire])
-      derives ConfiguredJsonValueCodec
+      derives JsonCodec
 
 private[codex] object CodexTurn:
 

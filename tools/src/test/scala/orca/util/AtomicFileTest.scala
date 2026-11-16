@@ -1,7 +1,7 @@
 package orca.util
 
 import munit.FunSuite
-import orca.testkit.TempDirs
+import orca.testkit.{Effects, TempDirs}
 
 class AtomicFileTest extends FunSuite:
 
@@ -11,7 +11,7 @@ class AtomicFileTest extends FunSuite:
     os.write(p / "inner", "kept", createFolders = true)
     val stagingDir = TempDirs.dir()
     val _ = intercept[java.nio.file.FileSystemException](
-      AtomicFile.replace(p, stagingDir, Array[Byte](1))
+      AtomicFile.replace(Effects.fs, p, stagingDir, IArray(1.toByte))
     )
     assertEquals(os.read(p / "inner"), "kept")
     assertEquals(os.list(stagingDir).toList, Nil)

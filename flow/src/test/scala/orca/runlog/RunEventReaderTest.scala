@@ -4,7 +4,7 @@ import orca.{AttemptId, StagePath}
 import orca.agents.BackendTag
 import orca.events.StageOutcome
 import orca.gitref.BranchName
-import orca.testkit.TempDirs
+import orca.testkit.{Effects, TempDirs}
 import ox.tap
 
 import java.time.Instant
@@ -29,21 +29,34 @@ class RunEventReaderTest extends munit.FunSuite:
       RunEvent.encodeLine(finished),
       RunEvent.encodeLine(bound).take(20)
     )
-    assertEquals(RunEventReader.read(log), List(bound, finished))
+    assertEquals(
+      new RunEventReader(Effects.fs).read(log),
+      List(bound, finished)
+    )
 
   test("ignores an unknown field"):
     val log = logOf(
       """{"type":"BranchBound","at":"2026-10-08T10:00:00Z","attempt":"1000-42","branch":"b","extra":{"x":1}}"""
     )
-    assertEquals(RunEventReader.read(log), List(bound))
+    assertEquals(
+      new RunEventReader(Effects.fs).read(log),
+      List(bound)
+    )
 
   test("an absent file has no events"):
-    assertEquals(RunEventReader.read(TempDirs.dir() / "events.jsonl"), Nil)
+    assertEquals(
+      new RunEventReader(Effects.fs)
+        .read(TempDirs.dir() / "events.jsonl"),
+      Nil
+    )
 
   test("an unreadable file has no events"):
     val dir = TempDirs.dir() / "events.jsonl"
     os.makeDir(dir)
-    assertEquals(RunEventReader.read(dir), Nil)
+    assertEquals(
+      new RunEventReader(Effects.fs).read(dir),
+      Nil
+    )
 
   test("readOnly keeps only the events of the given types"):
     val log = logOf(
@@ -52,7 +65,8 @@ class RunEventReaderTest extends munit.FunSuite:
       RunEvent.encodeLine(bound)
     )
     assertEquals(
-      RunEventReader.readOnly(log, Set(classOf[RunEvent.AttemptFinished])),
+      new RunEventReader(Effects.fs)
+        .readOnly(log, Set(classOf[RunEvent.AttemptFinished])),
       List(finished)
     )
 
@@ -104,5 +118,9 @@ class RunEventReaderTest extends munit.FunSuite:
     )
     val log = logOf(events.map(RunEvent.encodeLine)*)
     events.foreach(e =>
-      assertEquals(RunEventReader.readOnly(log, Set(e.getClass)), List(e))
+      assertEquals(
+        new RunEventReader(Effects.fs)
+          .readOnly(log, Set(e.getClass)),
+        List(e)
+      )
     )

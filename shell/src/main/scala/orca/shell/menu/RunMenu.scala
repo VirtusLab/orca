@@ -99,7 +99,7 @@ private[menu] object RunMenu:
       ui: ShellUi
   ): UiOutcome[Option[BranchName]] =
     ui.input("Branch name (Enter to derive from the prompt)") match
-      case UiOutcome.Cancelled => UiOutcome.Cancelled
+      case UiOutcome.Cancelled                         => UiOutcome.Cancelled
       case UiOutcome.Selected(raw) if raw.trim.isEmpty =>
         UiOutcome.Selected(None)
       case UiOutcome.Selected(raw) =>

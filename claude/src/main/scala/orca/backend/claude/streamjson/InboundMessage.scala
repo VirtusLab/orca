@@ -1,10 +1,7 @@
 package orca.backend.claude.streamjson
 
 import orca.events.{Usage}
-import orca.json.RawJson
-
-import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
-import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
+import orca.json.{JsonCodec, RawJson}
 
 /** One message parsed off of claude's stdout when running with `--output-format
   * stream-json --verbose --include-partial-messages`. Each variant carries only
@@ -58,7 +55,7 @@ private[claude] object InboundMessage:
     * callers decide whether to skip or fail.
     */
   def parse(line: String): InboundMessage =
-    val envelope = readFromString[TopEnvelope](line)
+    val envelope = JsonCodec.readString[TopEnvelope](line)
     envelope.`type` match
       case "system"          => parseSystem(line)
       case "assistant"       => parseAssistant(line)
@@ -69,21 +66,21 @@ private[claude] object InboundMessage:
       case other             => Unknown(other)
 
   private def parseSystem(line: String): InboundMessage =
-    val wire = readFromString[SystemWire](line)
+    val wire = JsonCodec.readString[SystemWire](line)
     if wire.subtype == "init" then
       SystemInit(wire.session_id.getOrElse(""), wire.model)
     else Unknown(s"system.${wire.subtype}")
 
   private def parseAssistant(line: String): InboundMessage =
-    val wire = readFromString[MessageWire](line)
+    val wire = JsonCodec.readString[MessageWire](line)
     Assistant(wire.message.toBlocks, wire.message.id)
 
   private def parseUser(line: String): InboundMessage =
-    val wire = readFromString[MessageWire](line)
+    val wire = JsonCodec.readString[MessageWire](line)
     User(wire.message.toBlocks)
 
   private def parseResult(line: String): InboundMessage =
-    val wire = readFromString[ResultWire](line)
+    val wire = JsonCodec.readString[ResultWire](line)
     // The result message's own `num_turns` looks like a call count and is not
     // one: measured against claude 2.1.220 it is (tool calls + 1), so a
     // response issuing three tool calls at once reports three turns where one
@@ -110,39 +107,39 @@ private[claude] object InboundMessage:
     )
 
   private def parseControlRequest(line: String): InboundMessage =
-    ControlRequest(readFromString[ControlRequestWire](line).request.subtype)
+    ControlRequest(
+      JsonCodec.readString[ControlRequestWire](line).request.subtype
+    )
 
   private def parseStreamEvent(line: String): InboundMessage =
-    val wire = readFromString[StreamEventWire](line)
+    val wire = JsonCodec.readString[StreamEventWire](line)
     StreamEvent(StreamEventPayload.parse(wire.event.value))
 
   // --- Wire shapes ---
 
-  private case class TopEnvelope(`type`: String)
-      derives ConfiguredJsonValueCodec
+  private case class TopEnvelope(`type`: String) derives JsonCodec
 
   private case class SystemWire(
       subtype: String,
       session_id: Option[String] = None,
       model: Option[String] = None
-  ) derives ConfiguredJsonValueCodec
+  ) derives JsonCodec
 
   private case class InnerMessage(
       content: List[RawJson] = Nil,
       id: Option[String] = None
-  ) derives ConfiguredJsonValueCodec:
+  ) derives JsonCodec:
     def toBlocks: List[ContentBlock] =
       content.map(b => ContentBlock.parse(b.value))
 
-  private case class MessageWire(message: InnerMessage)
-      derives ConfiguredJsonValueCodec
+  private case class MessageWire(message: InnerMessage) derives JsonCodec
 
   private case class UsageWire(
       input_tokens: Option[Long] = None,
       output_tokens: Option[Long] = None,
       cache_creation_input_tokens: Option[Long] = None,
       cache_read_input_tokens: Option[Long] = None
-  ) derives ConfiguredJsonValueCodec
+  ) derives JsonCodec
 
   private case class ResultWire(
       subtype: String,
@@ -153,13 +150,11 @@ private[claude] object InboundMessage:
       total_cost_usd: Option[BigDecimal] = None,
       is_error: Option[Boolean] = None,
       model: Option[String] = None
-  ) derives ConfiguredJsonValueCodec
+  ) derives JsonCodec
 
-  private case class ControlRequestInner(subtype: String)
-      derives ConfiguredJsonValueCodec
+  private case class ControlRequestInner(subtype: String) derives JsonCodec
 
   private case class ControlRequestWire(request: ControlRequestInner)
-      derives ConfiguredJsonValueCodec
+      derives JsonCodec
 
-  private case class StreamEventWire(event: RawJson)
-      derives ConfiguredJsonValueCodec
+  private case class StreamEventWire(event: RawJson) derives JsonCodec

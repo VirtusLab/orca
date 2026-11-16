@@ -355,16 +355,13 @@ private[shell] object FlowAuthoring:
     dir
 
   /** The exact `//> using` header lines a new flow file starts with: `build`'s
-    * [[OrcaBuild.usingDirectives]] between the scala and jvm pins (the
-    * "3.9.0"/`21` literals are kept in lockstep with `V.scala` in
-    * `project/Dependencies.scala` by hand — `updateDocs` only rewrites
-    * `.md`/`.sc` files, so this text is invisible to it). Shared by
+    * [[OrcaBuild.usingDirectives]] between the scala and jvm pins. Shared by
     * [[initialPrompt]] (states it as an instruction to the authoring agent) and
     * [[skeletonFlow]] (writes it verbatim), so a hand-written skeleton and an
     * agent-authored file pin the same way.
     */
   private def versionPinLines(build: OrcaBuild): String =
-    s"""//> using scala 3.9.0
+    s"""//> using scala ${OrcaBuild.scalaVersion}
        |${build.usingDirectives}
        |//> using jvm 21""".stripMargin
 

@@ -1,7 +1,6 @@
 package orca.agents
 
-import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
-import orca.json.JsonData
+import orca.json.{JsonCodec, JsonData}
 
 /** Serializes an arbitrary value into the string embedded in the prompt sent to
   * the LLM, so callers don't have to pre-stringify their arguments.
@@ -17,4 +16,4 @@ object AgentInput:
     def serialize(a: String): String = a
 
   given [A](using jd: JsonData[A]): AgentInput[A] with
-    def serialize(a: A): String = writeToString(a)(using jd.codec)
+    def serialize(a: A): String = JsonCodec.writeString(a)(using jd.codec)

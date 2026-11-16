@@ -4,19 +4,12 @@ import orca.agents.AgentInput
 import orca.json.{JsonData, given}
 import orca.plan.Title
 
-/** The `(name, description)` pair the picker LLM sees for one reviewer.
-  *
-  * In its own compilation unit because `derives JsonData` expands the tapir
-  * `Schema` macro, whose generated code doesn't type-check under
-  * `ReviewerSelector.scala`'s `captureChecking` mode (same split as
-  * `FixRequest.scala`).
-  */
+/** The `(name, description)` pair the picker LLM sees for one reviewer. */
 private[review] case class ReviewerInfo(name: String, description: String)
     derives JsonData
 
 /** The request handed to [[ReviewerSelector.agentDriven]]'s picker LLM: the
   * task, the changed files, the eligible reviewers, and the selection brief.
-  * Non-CC for the same reason as [[ReviewerInfo]].
   */
 private[review] case class ReviewerSelectionRequest(
     taskTitle: Title,

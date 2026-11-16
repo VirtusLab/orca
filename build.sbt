@@ -18,6 +18,16 @@ scalacOptions ++= Seq(
 
 javacOptions ++= Seq("--release", "21")
 
+// Scala 3.10.0's safe-mode checker (`SafeRefs.checker`) shares a mutable flag
+// across compiler instances in one JVM, so concurrent safe-mode compiles report
+// false "Cannot refer to ..." errors. Remove once fixed upstream.
+Global / concurrentRestrictions += Tags.limit(Tags.Compile, 1)
+
+// tapir's Magnolia `Schema.derived`, which the schema-parity tests compare
+// against, inlines `Predef.ArrowAssoc`, deprecated since Scala 3.10; `@nowarn`
+// can't reach a warning positioned in inlined code.
+Test / scalacOptions += "-Wconf:cat=deprecation&msg=ArrowAssoc:s"
+
 // Makes sbt-git answer its read-only queries with the `git` CLI instead of the
 // bundled JGit, which reads a linked worktree's `.git` *file* as a bare repo and
 // aborts project load with NoWorkTreeException — without this, sbt does not
@@ -33,6 +43,10 @@ useReadableConsoleGit
 // the same `version.value`.
 lazy val buildVersionProperty =
   Def.setting("-Dorca.build.version=" + version.value)
+
+// The Scala version flow scripts pin, for tests that check or use the pin.
+lazy val scalaVersionProperty =
+  Def.setting("-Dorca.build.scalaVersion=" + scalaVersion.value)
 
 // sbt 2 runs forked tests through its own worker, so `java.class.path` in the
 // test JVM holds only that worker's jars. Tests that start a compiler or a
@@ -86,40 +100,71 @@ developers := List(
   )
 )
 
+// Main sources only: tests mint capabilities and use os-lib directly.
+lazy val safeMode = Seq(
+  Compile / scalacOptions += "-language:experimental.safe",
+  Test / scalacOptions -= "-language:experimental.safe"
+)
+
+// The trusted base: effect capabilities, their implementations and facades
+// over libraries safe code cannot reference. The only module where
+// `@assumeSafe` may appear (`AssumeSafeScopeTest`).
+lazy val core = (project in file("core"))
+  .settings(
+    name := "orca-core",
+    // NetworkTest asserts no Netty threads outlive its server, so no other
+    // suite may run one at the same time.
+    Test / parallelExecution := false,
+    Test / javaOptions += testClasspathProperty.value,
+    libraryDependencies ++= Seq(
+      osLib,
+      jsoniter,
+      jsoniterMacros,
+      ox,
+      tapirNettySync,
+      // `JsonSchemas` renders tapir schemas as JSON Schema.
+      tapirApispec,
+      sttpApispecCirce,
+      // The `mcp` facade.
+      chimp,
+      slf4j,
+      scala3Compiler
+    )
+  )
+
 lazy val tools = (project in file("tools"))
+  .dependsOn(core, core % "test->test")
+  .settings(safeMode*)
   .settings(
     name := "orca-tools",
     libraryDependencies ++= Seq(
       osLib,
       jsoniter,
       jsoniterMacros,
-      tapirApispec,
-      sttpApispecCirce,
       ox,
       jsonSchemaValidator,
-      // The shared MCP server (orca.backend.mcp.AskUserMcpServer) is consumed
-      // by the claude, codex and gemini backends, so chimp-server + the netty
-      // backend live here — tools already hosts the cross-backend
-      // orca.backend package — rather than in any single backend module.
-      chimp,
-      tapirNettySync
+      // `McpHostTest` calls a chimp tool's logic directly.
+      chimp % Test
     )
   )
 
 lazy val claude = (project in file("claude"))
   .dependsOn(tools, tools % "test->test")
+  .settings(safeMode*)
   .settings(
     name := "orca-claude",
     libraryDependencies ++= Seq(
       osLib,
       jsoniter,
       jsoniterMacros,
-      logback
+      // Binds chimp/tapir/netty's SLF4J calls in the MCP-server tests.
+      logback % Test
     )
   )
 
 lazy val codex = (project in file("codex"))
   .dependsOn(tools, tools % "test->test")
+  .settings(safeMode*)
   .settings(
     name := "orca-codex",
     libraryDependencies ++= Seq(osLib, jsoniter, jsoniterMacros)
@@ -127,16 +172,17 @@ lazy val codex = (project in file("codex"))
 
 lazy val pi = (project in file("pi"))
   .dependsOn(tools, tools % "test->test")
+  .settings(safeMode*)
   .settings(
     name := "orca-pi",
     libraryDependencies ++= Seq(osLib, jsoniter, jsoniterMacros)
   )
 
 // The OpenCode backend talks HTTP+SSE to a headless `opencode serve` (ADR
-// 0014); it uses the JDK's java.net.http client (no extra dependency) behind a
-// small testable trait, plus jsoniter for the wire DTOs.
+// 0014), through `Network.httpClient`.
 lazy val opencode = (project in file("opencode"))
   .dependsOn(tools, tools % "test->test")
+  .settings(safeMode*)
   .settings(
     name := "orca-opencode",
     libraryDependencies ++= Seq(osLib, jsoniter, jsoniterMacros)
@@ -144,6 +190,7 @@ lazy val opencode = (project in file("opencode"))
 
 lazy val gemini = (project in file("gemini"))
   .dependsOn(tools, tools % "test->test")
+  .settings(safeMode*)
   .settings(
     name := "orca-gemini",
     libraryDependencies ++= Seq(osLib, jsoniter, jsoniterMacros)
@@ -151,20 +198,36 @@ lazy val gemini = (project in file("gemini"))
 
 lazy val flow = (project in file("flow"))
   .dependsOn(tools, tools % "test->test")
+  .settings(safeMode*)
   .settings(
     name := "orca-flow",
     Test / javaOptions += testClasspathProperty.value,
+    // Not `logback-test.xml`: through `flow % "test->test"` that would
+    // override runner's own logback.xml in runner's tests.
+    Test / javaOptions += "-Dlogback.configurationFile=flow-logback-test.xml",
     libraryDependencies ++= Seq(
       ox,
       jsoniterMacros,
       jsonSchemaValidator,
       scala3Compiler,
-      munitScalacheck
+      munitScalacheck,
+      // Lets tests capture what orca logs.
+      logback % Test
     )
+  )
+
+// A run's setup, recovery and teardown; `runner` wires it.
+lazy val lifecycle = (project in file("lifecycle"))
+  .dependsOn(tools, tools % "test->test", flow)
+  .settings(safeMode*)
+  .settings(
+    name := "orca-lifecycle",
+    libraryDependencies ++= Seq(osLib, jsoniter, jsoniterMacros, ox)
   )
 
 lazy val runner = (project in file("runner"))
   .dependsOn(
+    lifecycle,
     tools,
     tools % "test->test",
     flow,
@@ -193,6 +256,7 @@ lazy val runner = (project in file("runner"))
     // semantics the guard exists to enforce.
     Test / parallelExecution := false,
     Test / javaOptions += buildVersionProperty.value,
+    Test / javaOptions += scalaVersionProperty.value,
     Test / javaOptions += testClasspathProperty.value,
     // `flow(...)` resolves the global settings file and reviewer directory from
     // the config home, so the tests here that drive it would otherwise read —
@@ -211,6 +275,7 @@ lazy val runner = (project in file("runner"))
       ox,
       mainargs,
       jline,
+      logback,
       fansi,
       jsoniterMacros,
       munitScalacheck
@@ -218,11 +283,12 @@ lazy val runner = (project in file("runner"))
   )
 
 lazy val shell = (project in file("shell"))
-  // `pi` and `gemini` are already on the classpath transitively via `runner`,
-  // but declared explicitly since shell reads pi's session store
+  // `lifecycle`, `pi` and `gemini` are already on the classpath transitively
+  // via `runner`, but declared explicitly since shell uses them directly:
+  // lifecycle's `RoleAgents` and `RunTarget`, and pi's session store
   // (`PiSessionStore`) and gemini's session listing (`GeminiSessionList`) to
   // build the resume argv for a recorded chat (ADR 0021 §8).
-  .dependsOn(runner, pi, gemini, tools % "test->test")
+  .dependsOn(runner, lifecycle, pi, gemini, tools % "test->test")
   .settings(
     name := "orca-shell",
     Compile / mainClass := Some("orca.shell.Main"),
@@ -245,15 +311,17 @@ lazy val shell = (project in file("shell"))
     // concurrently running suite observes the temporarily-ignored handler —
     // the same isolation runner uses for its lock and logger state.
     Test / parallelExecution := false,
+    Test / javaOptions += scalaVersionProperty.value,
     // The shell's own version (`OrcaBuild.current`), as a resource rather than
     // the jar manifest, so a class-directory run (tests, `sbt shell/run`) knows
     // it too — the same version a `publishLocal` in the same sbt session
-    // publishes.
+    // publishes. Next to it, the Scala version flows pin
+    // (`OrcaBuild.scalaVersion`).
     Compile / resourceGenerators += Def.task {
-      val file =
-        (Compile / resourceManaged).value / "orca" / "shell" / "version"
-      IO.write(file, version.value)
-      Seq(file)
+      val dir = (Compile / resourceManaged).value / "orca" / "shell"
+      IO.write(dir / "version", version.value)
+      IO.write(dir / "scala-version", scalaVersion.value)
+      Seq(dir / "version", dir / "scala-version")
     }.taskValue,
     // Bundles the top-level flows/*.sc scripts as jar resources under
     // orca/shell/flows/ (ADR 0021 §7), so `BuiltInFlows` can extract them to a
@@ -357,4 +425,4 @@ lazy val orcaRoot = rootProject
         )
     }
   )
-  .aggregate(tools, flow, claude, codex, opencode, pi, gemini, runner, shell)
+  .aggregate(core, tools, flow, lifecycle, claude, codex, opencode, pi, gemini, runner, shell)

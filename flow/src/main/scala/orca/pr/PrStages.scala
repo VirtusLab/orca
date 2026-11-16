@@ -46,7 +46,7 @@ private[pr] enum CreateResult derives JsonData:
   */
 private[pr] def refusalLine(reason: String, from: Staged[?]): String =
   from match
-    case Staged.Fresh(_) => reason
+    case Staged.Fresh(_)    => reason
     case Staged.Replayed(_) =>
       s"$reason (recorded from the earlier attempt; orca will not retry)"
 
@@ -61,7 +61,7 @@ private[pr] def summarise(
 )(using FlowContext, FlowControl): Either[NoDefaultBase, PrSummary] =
   val (summaryContext, summaryInstructions) = context match
     case Some(c) => (c, instructions)
-    case None =>
+    case None    =>
       (
         s"User prompt: $userPrompt",
         s"$instructions\n\n${PrPrompts.ClosingRefs}"

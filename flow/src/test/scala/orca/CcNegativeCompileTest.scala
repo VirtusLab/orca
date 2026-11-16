@@ -1,13 +1,6 @@
 package orca
 
-import java.nio.file.Files
-
-import scala.collection.mutable.ListBuffer
-
-import dotty.tools.dotc.Main
-import dotty.tools.dotc.core.Contexts.Context
-import dotty.tools.dotc.interfaces.Diagnostic as IDiagnostic
-import dotty.tools.dotc.reporting.{Diagnostic, Reporter}
+import orca.testkit.Dotc
 
 /** Capture-checking enforcement pinned as automated negative-compile tests, so
   * a compiler upgrade or a wrapper edit can't silently drop it. The checked
@@ -17,13 +10,6 @@ import dotty.tools.dotc.reporting.{Diagnostic, Reporter}
   * widening that "hides" the exclusive token), not at the wrapper boundary —
   * see [[orca.CheckedPar]]'s object doc.
   *
-  * An in-process `dotc` is used, not munit's `compileErrors`: that macro runs
-  * only the typer, but capture/separation checking runs post-typer, so a
-  * `compileErrors` version of the exclusive-capture cases would report ZERO
-  * errors and pass vacuously. Invoking the real `dotc`
-  * ([[dotty.tools.dotc.Main]]) against this module's own Test classpath runs
-  * the full checked-compilation pipeline.
-  *
   * Fixtures declare `package orca` because [[orca.CheckedPar]] is
   * `private[orca]`. They pass the capability token in as a method parameter
   * rather than minting it via `InStage.unsafe`: passing an exclusive parameter
@@ -31,59 +17,6 @@ import dotty.tools.dotc.reporting.{Diagnostic, Reporter}
   * reject, and keeps each fixture to one token, one wrapper call, two closures.
   */
 class CcNegativeCompileTest extends munit.FunSuite:
-
-  /** Collects error/warning diagnostics from a `dotc` run instead of parsing
-    * stdout — a custom [[Reporter]] is the driver API's supported inspection
-    * point.
-    */
-  private class CollectingReporter extends Reporter:
-    val diagnostics: ListBuffer[Diagnostic] = ListBuffer.empty
-    def doReport(dia: Diagnostic)(using Context): Unit =
-      val _ = diagnostics += dia
-
-  /** The Test classpath. Tests are forked, but sbt 2 starts the fork through
-    * its own worker, so `java.class.path` holds only the worker's jars; the
-    * build passes the real classpath as `orca.test.classpath`. Falls back to
-    * `java.class.path` when run outside sbt.
-    */
-  private def classpath: String =
-    sys.props.getOrElse(
-      "orca.test.classpath",
-      System.getProperty("java.class.path")
-    )
-
-  /** Compile one fixture source with `dotc` and return its error messages. Each
-    * call spins a fresh reporter and output dir; the classpath (the expensive
-    * part to assemble) is shared.
-    */
-  private def compileErrorsOf(source: String): List[String] =
-    val srcDir = Files.createTempDirectory("cc-src")
-    val outDir = Files.createTempDirectory("cc-out")
-    try
-      val srcFile = srcDir.resolve("Fixture.scala")
-      Files.writeString(srcFile, source)
-      val reporter = new CollectingReporter
-      val args = Array(
-        "-classpath",
-        classpath,
-        "-d",
-        outDir.toString,
-        srcFile.toString
-      )
-      val _ = Main.process(args, reporter)
-      reporter.diagnostics.toList
-        .filter(_.level >= IDiagnostic.ERROR)
-        .map(_.message)
-    finally
-      deleteRecursively(srcDir)
-      deleteRecursively(outDir)
-
-  private def deleteRecursively(dir: java.nio.file.Path): Unit =
-    if Files.exists(dir) then
-      Files
-        .walk(dir)
-        .sorted(java.util.Comparator.reverseOrder())
-        .forEach(Files.delete)
 
   /** Fan-out fixture whose closures capture a `tok` of the given token type,
     * routed through the real `orca.CheckedPar.mapParUnordered`. Identical shape
@@ -106,7 +39,7 @@ class CcNegativeCompileTest extends munit.FunSuite:
   // compile errors at all — otherwise every negative case below would pass
   // vacuously. A plain type error must surface as a non-empty error list.
   test("harness detects a plain compile error"):
-    val errors = compileErrorsOf(
+    val errors = Dotc.errorsOf(
       "object Broken:\n  val n: Int = \"not an int\"\n"
     )
     assert(
@@ -115,18 +48,18 @@ class CcNegativeCompileTest extends munit.FunSuite:
     )
 
   test("(a) POSITIVE: capturing InStage (shared) compiles"):
-    val errors = compileErrorsOf(fixture("orca.InStage"))
+    val errors = Dotc.errorsOf(fixture("orca.InStage"))
     assert(
       errors.isEmpty,
       s"the load-bearing shared InStage fan-out capture must compile, got: $errors"
     )
 
   test("(b) NEGATIVE: capturing WorkspaceWrite (exclusive) fails to compile"):
-    val errors = compileErrorsOf(fixture("orca.WorkspaceWrite"))
+    val errors = Dotc.errorsOf(fixture("orca.WorkspaceWrite"))
     assertSeparationFailure("WorkspaceWrite", errors)
 
   test("(c) NEGATIVE: capturing FlowControl (exclusive) fails to compile"):
-    val errors = compileErrorsOf(fixture("orca.FlowControl"))
+    val errors = Dotc.errorsOf(fixture("orca.FlowControl"))
     assertSeparationFailure("FlowControl", errors)
 
   /** Assert the fan-out was rejected specifically by separation checking — not
@@ -179,11 +112,11 @@ class CcNegativeCompileTest extends munit.FunSuite:
     "(d) NEGATIVE: a ReviewerSelector whose returned arrow captures `ev` (InStage) fails to compile"
   ):
     val errors =
-      compileErrorsOf(selectorFixture("history => { val _ = ev; all }"))
+      Dotc.errorsOf(selectorFixture("history => { val _ = ev; all }"))
     assertCaptureEscape(errors)
 
   test("(e) POSITIVE: a pure history-narrowing ReviewerSelector compiles"):
-    val errors = compileErrorsOf(
+    val errors = Dotc.errorsOf(
       selectorFixture(
         "history => history.headOption match { case None => all; " +
           "case Some(batch) => batch.reviewersWithFindings }"
@@ -236,7 +169,7 @@ class CcNegativeCompileTest extends munit.FunSuite:
   test(
     "(f) POSITIVE: a fan-out capturing FlowContext beside a FlowControl compiles"
   ):
-    val errors = compileErrorsOf(contextFixture)
+    val errors = Dotc.errorsOf(contextFixture)
     assert(
       errors.isEmpty,
       s"the fan-out must capture only the FlowContext, got: $errors"

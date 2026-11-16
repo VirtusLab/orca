@@ -72,10 +72,11 @@ rewrite (the flows resolve from Maven Central), so it skips itself.
 sbt publishLocal
 ```
 
-Installs `org.virtuslab::orca:0.0.17` plus its transitive modules
-(`orca-tools`, `orca-flow`, and the five backends
-`orca-{claude,codex,gemini,opencode,pi}`) into `~/.ivy2/local` so a flow
-script with `//> using repository ivy2Local` can resolve them. For an
+Installs every module into `~/.ivy2/local`: `org.virtuslab::orca` (the runner),
+the modules it depends on (`orca-core`, `orca-tools`, `orca-flow`,
+`orca-lifecycle`, and the five backends `orca-{claude,codex,gemini,opencode,pi}`),
+and `orca-shell`. A flow script with `//> using repository ivy2Local` can then
+resolve them. For an
 iteration loop, `sbt "~publishLocal"` rebuilds and republishes on every
 save.
 

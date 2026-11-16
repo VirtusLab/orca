@@ -16,7 +16,7 @@ private[menu] object Prompts:
       emptyError: String
   ): Option[String] =
     ui.inputMultiline(label) match
-      case UiOutcome.Cancelled => None
+      case UiOutcome.Cancelled                           => None
       case UiOutcome.Selected(text) if text.trim.isEmpty =>
         ShellOutput.error(emptyError)
         nonBlankMultiline(ui, label, emptyError)

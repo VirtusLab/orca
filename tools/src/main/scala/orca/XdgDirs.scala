@@ -1,5 +1,7 @@
 package orca
 
+import orca.safe.prelude.{absolutePath, given}
+
 /** The per-user base directories of the XDG Base Directory spec. A relative,
   * empty, or root-climbing variable is ignored and falls back like an unset
   * one, as the spec mandates.
@@ -18,8 +20,4 @@ private[orca] object XdgDirs:
       variable: String,
       fallback: os.Path
   ): os.Path =
-    env(variable)
-      // `os.Path` accepts only absolute paths, so a relative, empty, or
-      // root-climbing value throws and falls back — no separate pre-filter.
-      .flatMap(v => scala.util.Try(os.Path(v)).toOption)
-      .getOrElse(fallback)
+    env(variable).flatMap(absolutePath).getOrElse(fallback)

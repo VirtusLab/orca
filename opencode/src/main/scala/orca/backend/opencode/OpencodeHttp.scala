@@ -7,8 +7,8 @@ import orca.backend.StreamSource
   * SSE stream as a [[StreamSource]].
   *
   * A small seam so [[OpencodeTurn]] and [[OpencodeBackend]] are testable
-  * without a live server — implemented over `java.net.http` in
-  * [[OpencodeServer]], stubbed in tests.
+  * without a live server — implemented by [[NetworkOpencodeHttp]], stubbed in
+  * tests.
   */
 private[opencode] trait OpencodeHttp:
   /** POST a JSON `body` to `path` (relative to the server base, e.g.
@@ -28,9 +28,3 @@ private[opencode] trait OpencodeHttp:
     * reason — callers treat any non-200 as "session not found".
     */
   def getStatus(path: String): Int = 0
-
-  /** Release transport resources (the HTTP client). Default no-op for stubs;
-    * the real client shuts down its connection pool and selector thread. Called
-    * once at scope teardown.
-    */
-  def close(): Unit = ()

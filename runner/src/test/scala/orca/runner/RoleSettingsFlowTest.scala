@@ -1,12 +1,12 @@
 package orca.runner
 
+import orca.lifecycle.{DiscoveredCommand, DiscoveredGate, StackDiscoveryResult}
 import orca.ReportedFailure
 import orca.{ConfigHome, FlowContext, OrcaDir, OrcaFlowException, StackSettings}
 import orca.agents.{Agent, BackendTag, CodexAgent, GeminiAgent, Model}
 import orca.events.OrcaListener
 import orca.settings.SettingsFile
-import orca.testkit.{GitRepo, TempDirs, currentBranch}
-import orca.tools.OsGitTool
+import orca.testkit.{Effects, GitRepo, TempDirs, currentBranch}
 
 import java.util.concurrent.atomic.AtomicReference
 
@@ -320,7 +320,7 @@ class RoleSettingsFlowTest extends munit.FunSuite:
     val linkPath = OrcaDir.settingsPath(workDir)
     os.makeDir.all(linkPath / os.up)
     os.symlink(linkPath, outside)
-    val startBranch = new OsGitTool(workDir).currentBranch()
+    val startBranch = Effects.gitTool(workDir).currentBranch()
     // A canned discovery agent that would succeed and write, so it's the abort,
     // not a discovery failure, that keeps the target file from being created.
     val canned = CannedDiscoveryAgent(
@@ -339,7 +339,7 @@ class RoleSettingsFlowTest extends munit.FunSuite:
       "no discovery write must go through the symlink"
     )
     assertEquals(
-      new OsGitTool(workDir).currentBranch(),
+      Effects.gitTool(workDir).currentBranch(),
       startBranch,
       "the symlink abort must precede any branch mutation"
     )
@@ -356,7 +356,7 @@ class RoleSettingsFlowTest extends munit.FunSuite:
     val outside = TempDirs.dir() / "outside-orca"
     os.makeDir.all(outside)
     os.symlink(OrcaDir.rootPath(workDir), outside)
-    val startBranch = new OsGitTool(workDir).currentBranch()
+    val startBranch = Effects.gitTool(workDir).currentBranch()
     // A canned discovery agent that would succeed and write, so it's the abort,
     // not a discovery failure, that keeps the target from being written.
     val canned = CannedDiscoveryAgent(
@@ -375,7 +375,7 @@ class RoleSettingsFlowTest extends munit.FunSuite:
       "no write must go through the symlinked `.orca` directory"
     )
     assertEquals(
-      new OsGitTool(workDir).currentBranch(),
+      Effects.gitTool(workDir).currentBranch(),
       startBranch,
       "the symlinked-`.orca` abort must precede any branch mutation"
     )
@@ -394,7 +394,7 @@ class RoleSettingsFlowTest extends munit.FunSuite:
     os.makeDir.all(outside)
     os.makeDir.all(OrcaDir.rootPath(workDir))
     os.symlink(OrcaDir.rootPath(workDir) / "cache", outside)
-    val startBranch = new OsGitTool(workDir).currentBranch()
+    val startBranch = Effects.gitTool(workDir).currentBranch()
     // A canned discovery agent that would succeed and write, so it's the abort,
     // not a discovery failure, that keeps the target from being written.
     val canned = CannedDiscoveryAgent(
@@ -413,7 +413,7 @@ class RoleSettingsFlowTest extends munit.FunSuite:
       "no write must go through the symlinked `.orca/cache` directory"
     )
     assertEquals(
-      new OsGitTool(workDir).currentBranch(),
+      Effects.gitTool(workDir).currentBranch(),
       startBranch,
       "the symlinked-`.orca/cache` abort must precede any branch mutation"
     )
@@ -480,7 +480,7 @@ class RoleSettingsFlowTest extends munit.FunSuite:
       configHome: ConfigHome = absentGlobal(),
       stackSettings: Option[StackSettings] = None
   ): Unit =
-    val startBranch = new OsGitTool(workDir).currentBranch()
+    val startBranch = Effects.gitTool(workDir).currentBranch()
     val _ = intercept[ReportedFailure]:
       driveFlow(
         workDir,
@@ -489,7 +489,7 @@ class RoleSettingsFlowTest extends munit.FunSuite:
         wiring = wiringWith(claude = StubAgent.claude)
       )(())
     assertEquals(
-      new OsGitTool(workDir).currentBranch(),
+      Effects.gitTool(workDir).currentBranch(),
       startBranch,
       "the malformed-file abort must precede any branch mutation"
     )

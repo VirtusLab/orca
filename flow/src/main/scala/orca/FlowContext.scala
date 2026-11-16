@@ -5,7 +5,7 @@ import orca.tools.FsTool
 import orca.tools.{GitTool, RuntimeGit}
 import orca.tools.GitHubTool
 import orca.agents.Agent
-import orca.review.ReviewerCatalog
+import orca.review.{GateShell, ReviewerCatalog}
 
 import scala.annotation.implicitNotFound
 
@@ -70,6 +70,9 @@ trait FlowContext extends AgentSet:
   def reviewerCatalog: ReviewerCatalog
 
   def userPrompt: String
+
+  /** Where the format and lint gates run their commands. */
+  private[orca] def gateShell: GateShell
 
   /** The library's event sink. Flows use `display`, `fail` and `.announce`. */
   private[orca] def emit(event: OrcaEvent): Unit

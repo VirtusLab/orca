@@ -3,9 +3,11 @@ package orca.backend.gemini
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import com.github.plokhotnyuk.jsoniter_scala.macros.JsonCodecMaker
 import orca.OrcaFlowException
-import orca.testkit.TempDirs
+import orca.testkit.{Effects, TempDirs}
 
 class GeminiSettingsTest extends munit.FunSuite:
+
+  private val fs = Effects.fs
 
   private given mapCodec
       : com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec[
@@ -22,7 +24,7 @@ class GeminiSettingsTest extends munit.FunSuite:
     "register creates settings.json with the orca MCP server when none exists"
   ):
     val workDir = TempDirs.dir()
-    val _ = GeminiSettings.register(workDir, "http://127.0.0.1:9999/mcp")
+    val _ = GeminiSettings.register(fs, workDir, "http://127.0.0.1:9999/mcp")
     val file = settingsFile(workDir)
     assert(os.exists(file), "settings.json should be created")
     val keys = topLevel(os.read(file))
@@ -55,14 +57,14 @@ class GeminiSettingsTest extends munit.FunSuite:
 
   test("close removes a .gemini directory it created"):
     val workDir = TempDirs.dir()
-    val restore = GeminiSettings.register(workDir, "http://x/mcp")
+    val restore = GeminiSettings.register(fs, workDir, "http://x/mcp")
     assert(os.exists(settingsFile(workDir)))
     restore.close()
     assert(!os.exists(workDir / ".gemini"))
 
   test("close keeps a .gemini directory it created that gained other files"):
     val workDir = TempDirs.dir()
-    val restore = GeminiSettings.register(workDir, "http://x/mcp")
+    val restore = GeminiSettings.register(fs, workDir, "http://x/mcp")
     val other = workDir / ".gemini" / "other.json"
     os.write(other, "{}")
     restore.close()
@@ -72,7 +74,7 @@ class GeminiSettingsTest extends munit.FunSuite:
   test("close keeps a pre-existing .gemini directory"):
     val workDir = TempDirs.dir()
     os.makeDir(workDir / ".gemini")
-    val restore = GeminiSettings.register(workDir, "http://x/mcp")
+    val restore = GeminiSettings.register(fs, workDir, "http://x/mcp")
     restore.close()
     assert(!os.exists(settingsFile(workDir)))
     assert(os.isDir(workDir / ".gemini"))
@@ -84,7 +86,7 @@ class GeminiSettingsTest extends munit.FunSuite:
       """{"theme":"dark","mcpServers":{"github":{"httpUrl":"http://gh/mcp"}}}"""
     os.write(file, original, createFolders = true)
 
-    val restore = GeminiSettings.register(workDir, "http://orca/mcp")
+    val restore = GeminiSettings.register(fs, workDir, "http://orca/mcp")
     val keys = topLevel(os.read(file))
     assertEquals(keys("theme").value, "\"dark\"")
     val servers = topLevel(keys("mcpServers").value)
@@ -110,14 +112,14 @@ class GeminiSettingsTest extends munit.FunSuite:
       s"""{"theme":"dark","mcpServers":$StaleEntry}""",
       createFolders = true
     )
-    GeminiSettings.register(workDir, "http://orca/mcp").close()
+    GeminiSettings.register(fs, workDir, "http://orca/mcp").close()
     assertEquals(topLevel(os.read(file)).keySet, Set("theme"))
 
   test("close removes a .gemini directory that held only a stale orca entry"):
     val workDir = TempDirs.dir()
     val file = settingsFile(workDir)
     os.write(file, s"""{"mcpServers":$StaleEntry}""", createFolders = true)
-    GeminiSettings.register(workDir, "http://orca/mcp").close()
+    GeminiSettings.register(fs, workDir, "http://orca/mcp").close()
     assert(!os.exists(workDir / ".gemini"))
 
   test("register keeps a user's orca entry of another shape"):
@@ -125,7 +127,7 @@ class GeminiSettingsTest extends munit.FunSuite:
     val file = settingsFile(workDir)
     val original = """{"mcpServers":{"orca":{"command":"my-orca"}}}"""
     os.write(file, original, createFolders = true)
-    GeminiSettings.register(workDir, "http://orca/mcp").close()
+    GeminiSettings.register(fs, workDir, "http://orca/mcp").close()
     assertEquals(os.read(file), original)
 
   test("register keeps a user's orca entry pointing off the loopback host"):
@@ -134,7 +136,7 @@ class GeminiSettingsTest extends munit.FunSuite:
     val original =
       """{"mcpServers":{"orca":{"httpUrl":"http://example.com/mcp","timeout":1}}}"""
     os.write(file, original, createFolders = true)
-    GeminiSettings.register(workDir, "http://orca/mcp").close()
+    GeminiSettings.register(fs, workDir, "http://orca/mcp").close()
     assertEquals(os.read(file), original)
 
   test("register refuses a symlinked .gemini directory"):
@@ -142,7 +144,7 @@ class GeminiSettingsTest extends munit.FunSuite:
     val target = TempDirs.dir()
     os.symlink(workDir / ".gemini", target)
     val _ = intercept[OrcaFlowException](
-      GeminiSettings.register(workDir, "http://orca/mcp")
+      GeminiSettings.register(fs, workDir, "http://orca/mcp")
     )
     assertEquals(os.list(target), Seq.empty)
 
@@ -153,6 +155,6 @@ class GeminiSettingsTest extends munit.FunSuite:
     os.makeDir(workDir / ".gemini")
     os.symlink(settingsFile(workDir), target)
     val _ = intercept[OrcaFlowException](
-      GeminiSettings.register(workDir, "http://orca/mcp")
+      GeminiSettings.register(fs, workDir, "http://orca/mcp")
     )
     assertEquals(os.read(target), "{}")

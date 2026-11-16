@@ -2,10 +2,10 @@ package orca.runlog
 
 import com.github.plokhotnyuk.jsoniter_scala.core.{
   JsonReaderException,
-  JsonValueCodec,
-  readFromString
+  JsonValueCodec
 }
-import com.github.plokhotnyuk.jsoniter_scala.macros.JsonCodecMaker
+import orca.effect.FileSystem
+import orca.json.JsonCodec
 
 import java.io.{IOException, UncheckedIOException}
 import java.nio.file.NoSuchFileException
@@ -14,7 +14,7 @@ import java.nio.file.NoSuchFileException
   * crash, an unknown `type` — are skipped. An absent or unreadable file reads
   * as no events.
   */
-private[orca] object RunEventReader:
+private[orca] final class RunEventReader(fs: FileSystem):
 
   /** Every event in `path`, in file order. */
   def read(path: os.Path): List[RunEvent] = readOrError(path).getOrElse(Nil)
@@ -45,15 +45,19 @@ private[orca] object RunEventReader:
   private def decodedLines(path: os.Path)(
       decode: String => Option[RunEvent]
   ): Either[IOException | UncheckedIOException, List[RunEvent]] =
-    try Right(os.read.lines.stream(path).flatMap(decode(_)).toList)
+    try Right(fs.collectLines(path)(decode))
     catch
       case _: NoSuchFileException                  => Right(Nil)
       case e: (IOException | UncheckedIOException) => Left(e)
 
-  private case class TypeOnly(`type`: String)
-
-  private val typeOnlyCodec: JsonValueCodec[TypeOnly] = JsonCodecMaker.make
-
   private def typeOf(line: String): Option[String] =
-    try Some(readFromString(line)(using typeOnlyCodec).`type`)
+    try
+      Some(
+        JsonCodec.readString(line)(using RunEventReader.typeOnlyCodec).`type`
+      )
     catch case _: JsonReaderException => None
+
+private object RunEventReader:
+  case class TypeOnly(`type`: String)
+
+  val typeOnlyCodec: JsonValueCodec[TypeOnly] = JsonCodec.make

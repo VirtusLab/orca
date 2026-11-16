@@ -22,6 +22,6 @@ private[orca] object ReportedFailure:
   def reportOnce(e: Throwable)(report: Throwable => Unit): ReportedFailure =
     e match
       case reported: ReportedFailure => reported
-      case _ =>
+      case _                         =>
         report(e)
         ReportedFailure(e)

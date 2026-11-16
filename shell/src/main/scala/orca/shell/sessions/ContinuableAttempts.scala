@@ -1,6 +1,7 @@
 package orca.shell.sessions
 
 import orca.{AttemptId, OrcaDir}
+import orca.effect.FileSystem
 import orca.runlog.{RunEvent, RunEventReader}
 
 import java.time.Instant
@@ -98,7 +99,7 @@ private[shell] object ContinuableAttempts:
     */
   private def datedEventLogs(workDir: os.Path): List[DatedLog] =
     val dir = OrcaDir.cacheRunsPath(workDir)
-    OrcaDir.assertNoOrcaSymlinks(workDir, dir)
+    OrcaDir(FileSystem.ambient).assertNoOrcaSymlinks(workDir, dir)
     if !os.exists(dir) then Nil
     else
       eventLogs(workDir, dir).flatMap: log =>
@@ -126,7 +127,7 @@ private[shell] object ContinuableAttempts:
     * counts.
     */
   private def attemptsWithSessions(log: os.Path): List[AttemptSessions] =
-    RunEventReader
+    new RunEventReader(orca.effect.FileSystem.ambient)
       .readOnly(log, CountedTypes)
       .groupBy(_.attempt)
       .toList
@@ -155,7 +156,7 @@ private[shell] object ContinuableAttempts:
       processAlive: AttemptRecord => Boolean
   ): AttemptListing =
     val dir = OrcaDir.cacheRunsPath(workDir)
-    OrcaDir.assertNoOrcaSymlinks(workDir, dir)
+    OrcaDir(FileSystem.ambient).assertNoOrcaSymlinks(workDir, dir)
     if !os.exists(dir) then AttemptListing(Nil, Nil)
     else
       val perLog = eventLogs(workDir, dir).map(readEventLog(_, processAlive))
@@ -169,7 +170,7 @@ private[shell] object ContinuableAttempts:
       .toList
       .map(_ / OrcaDir.EventLogName)
       .filter: log =>
-        OrcaDir.assertNoOrcaSymlinks(workDir, log)
+        OrcaDir(FileSystem.ambient).assertNoOrcaSymlinks(workDir, log)
         os.isFile(log)
 
   private def readEventLog(
@@ -184,7 +185,7 @@ private[shell] object ContinuableAttempts:
     * attempts would otherwise drop out of the listing unnoticed.
     */
   private def readEvents(file: os.Path): Either[String, List[RunEvent]] =
-    RunEventReader
+    new RunEventReader(orca.effect.FileSystem.ambient)
       .readOrError(file)
       .left
       .map(e => s"skipping $file: ${firstLine(e)}")

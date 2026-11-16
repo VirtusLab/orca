@@ -7,6 +7,7 @@ import orca.shell.ui.ShellOutput
 import orca.subprocess.QuietProc
 import orca.backend.gemini.GeminiSessionList
 import orca.backend.pi.PiSessionStore
+import orca.effect.FileSystem
 
 import java.time.Instant
 import scala.util.Try
@@ -76,13 +77,15 @@ private[shell] object SessionAction:
         s"the recorded pi session id `${displayable(wireId)}` is not a directory name"
       )
       .flatMap: dir =>
-        if PiSessionStore.resumable(dir, workDir, Instant.now()) then Right(dir)
+        if piSessions.resumable(dir, workDir, Instant.now()) then Right(dir)
         else
           Left(
             s"no resumable pi transcript at $dir — pruned by the session-cache " +
               "retention, cleaned with the checkout, recorded under a different " +
               "checkout path, or never written"
           )
+
+  private val piSessions = PiSessionStore(FileSystem.ambient)
 
   // The id just failed the safe-charset check, so it's arbitrary bytes from an
   // editable file — never interpolated into terminal output raw.
@@ -110,7 +113,7 @@ private[shell] object SessionAction:
       selection: SessionSelection
   ): Either[String, Int] =
     validatedWorkDir(selection.attempt.workDir) match
-      case Left(reason) => Left(s"can't resume — $reason")
+      case Left(reason)   => Left(s"can't resume — $reason")
       case Right(workDir) =>
         def geminiIndex(uuid: String): Option[Int] =
           try
@@ -123,7 +126,7 @@ private[shell] object SessionAction:
           piSessionDir = piSessionDir(_, workDir)
         ) match
           case Left(reason) => Left(s"can't resume — $reason")
-          case Right(argv) =>
+          case Right(argv)  =>
             try
               val exitCode = ChildTerminal.withChild(terminal):
                 os.proc(argv)

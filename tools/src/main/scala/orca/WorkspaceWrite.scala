@@ -2,6 +2,8 @@ package orca
 
 import language.experimental.captureChecking
 
+import orca.concurrency.{ThreadIdentity, currentThread}
+
 import scala.annotation.implicitNotFound
 
 /** In-stage workspace-mutation token: the EXCLUSIVE half of the capability
@@ -14,7 +16,7 @@ import scala.annotation.implicitNotFound
   * Extends `caps.ExclusiveCapability` (where [[InStage]] is a
   * `SharedCapability`), so separation checking forbids two concurrent closures
   * from both capturing it — the type-level encoding of "these mutations are
-  * flow-thread-only". `ExclusiveCapability` is `@experimental` on 3.9.0, so
+  * flow-thread-only". `ExclusiveCapability` is `@experimental` on 3.10.0, so
   * this file carries `import language.experimental.captureChecking`; that
   * taints only this compilation unit, not consumers (see ADR 0018 §6).
   *
@@ -25,14 +27,14 @@ import scala.annotation.implicitNotFound
 @implicitNotFound(
   "git/file/GitHub writes and progress-log writes must be made inside a `stage(...)` body — and, unlike LLM calls, must NOT be captured into a `fork`. Move this write into a stage (not a fork within one). If this is a helper meant to run inside a stage, declare it `(using WorkspaceWrite)` so its caller's token flows through."
 )
-final class WorkspaceWrite private (owner: Thread)
+final class WorkspaceWrite private (owner: ThreadIdentity)
     extends caps.ExclusiveCapability:
 
   /** Throws unless called on the thread that minted this token. Called first by
     * every gated write, with `what` naming the write.
     */
   private[orca] def check(what: String): Unit =
-    if Thread.currentThread() ne owner then
+    if currentThread() != owner then
       throw new OrcaFlowException(
         s"$what called off the flow thread (inside a `fork`, `supervised` " +
           "body, `Par.mapUnordered` or `timeout`) — return the data from " +
@@ -45,4 +47,4 @@ object WorkspaceWrite:
     * code; library code must never call this directly.
     */
   private[orca] def unsafe: WorkspaceWrite =
-    new WorkspaceWrite(Thread.currentThread())
+    new WorkspaceWrite(currentThread())

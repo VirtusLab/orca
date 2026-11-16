@@ -1,6 +1,8 @@
 package orca.runner
 
+import orca.lifecycle.WorktreeLock
 import orca.{OrcaDir, OrcaFlowException, RunKey}
+import orca.effect.FileSystem
 import ox.discard
 
 import java.nio.ByteBuffer
@@ -30,7 +32,7 @@ import java.util.concurrent.atomic.AtomicBoolean
   * commit: [[orca.OrcaDir.ensureCache]] writes the cache's `.gitignore` before
   * the lock file exists.
   */
-private[orca] object FlowLock:
+private[orca] object FlowLock extends WorktreeLock:
 
   private val processFlowLock = new AtomicBoolean(false)
 
@@ -46,14 +48,14 @@ private[orca] object FlowLock:
     * process holds it.
     */
   def worktreeLocked[T](mainCheckout: os.Path, key: RunKey)(op: => T): T =
-    OrcaDir.ensureCache(mainCheckout).discard
+    OrcaDir(FileSystem.ambient).ensureCache(mainCheckout).discard
     locked(OrcaDir.worktreeLockPath(mainCheckout, key), "for this prompt")(op)
 
   /** Runs `op` holding the lock of the run in `workDir`; throws when another
     * process holds it.
     */
   def workdirLocked[T](workDir: os.Path)(op: => T): T =
-    OrcaDir.ensureCache(workDir).discard
+    OrcaDir(FileSystem.ambient).ensureCache(workDir).discard
     locked(OrcaDir.flowLockPath(workDir), "in this working tree")(op)
 
   /** Runs `op` holding the OS lock on `lockPath`; throws when another process

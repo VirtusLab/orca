@@ -51,7 +51,7 @@ private[ui] final class NumberedUi(in: BufferedReader, out: PrintStream)
             case ""          => UiOutcome.Selected(default)
             case "y" | "yes" => UiOutcome.Selected(true)
             case "n" | "no"  => UiOutcome.Selected(false)
-            case _ =>
+            case _           =>
               out.println("Please answer y or n.")
               loop()
 

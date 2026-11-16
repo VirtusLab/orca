@@ -5,7 +5,7 @@ package orca.review
 import language.experimental.captureChecking
 import language.experimental.separationChecking
 
-import orca.{FlowContext, InStage, OrcaDir}
+import orca.{FlowContext, InStage}
 import orca.agents.{Agent, Chat, PromptEvent}
 
 /** The lint gate run alongside the reviewers each round: `commands` (each run
@@ -22,16 +22,14 @@ import orca.agents.{Agent, Chat, PromptEvent}
   */
 case class Lint(commands: List[String], agent: Agent[?])
 
-/** Run `cmd` through `bash -c` in `ctx.workDir`. A nonzero exit is returned,
-  * not thrown — the caller decides what a failure means. `mergeErrIntoOut`
-  * folds stderr into the captured stdout so neither stream reaches the terminal
-  * and tears the renderer's status row.
+/** Run `cmd` through `bash -c` in `ctx.workDir`, stderr merged into stdout (so
+  * neither tears the renderer's status row). A nonzero exit is returned, not
+  * thrown — the caller decides what a failure means.
   */
 private[review] def runShell(cmd: String)(using
     ctx: FlowContext
-): os.CommandResult =
-  os.proc("bash", "-c", cmd)
-    .call(cwd = ctx.workDir, check = false, mergeErrIntoOut = true)
+): orca.subprocess.CliResult =
+  ctx.gateShell.run(cmd, ctx.workDir)
 
 /** One executed lint command, rendered for the summariser as a labelled block
   * headed
@@ -85,7 +83,7 @@ def lint(
 )(using ctx: FlowContext, ev: InStage): LintReport =
   val runs = commands.map: command =>
     val proc = runShell(command)
-    LintRun(command, proc.exitCode, proc.out.text().trim)
+    LintRun(command, proc.exitCode, proc.stdout.trim)
   // The summariser is skipped only when every run is both silent AND successful.
   val allClean = runs.forall(r => r.exitCode == 0 && r.output.isEmpty)
   val result =
@@ -141,24 +139,12 @@ private def summariseRuns(
     // agent that denies reads outside its worktree can reach it).
     // `.orca/cache/` self-ignores via the `.gitignore` `ensureCache` writes
     // first, so a stage's `git add -A` can never sweep the spill file, even
-    // after a crash mid-lint. `deleteOnExit = false`: the `finally` owns
-    // cleanup, avoiding a JVM-exit hook per lint call.
-    val cacheDir = OrcaDir.ensureCache(ctx.workDir)
-    val outputFile =
-      os.temp(
-        combined,
-        dir = cacheDir,
-        prefix = "lint-",
-        suffix = ".txt",
-        deleteOnExit = false
-      )
-    try
+    // after a crash mid-lint.
+    ctx.gateShell.withSpillFile(combined, ctx.workDir): outputFile =>
       summarise(
         promptHead + s"The blocks are in `$outputFile`\n" +
           "(the file may be large — read it in parts if needed)."
       )
-    finally
-      val _ = os.remove(outputFile)
 
 // Public: restricting the companion would restrict `Lint(...)` too.
 object Lint:

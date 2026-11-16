@@ -1,6 +1,6 @@
 package orca.events
 
-import org.slf4j.LoggerFactory
+import orca.safe.Logger
 
 /** Token + cost accounting for one or more LLM calls.
   *
@@ -64,7 +64,7 @@ case class Usage(
     )
 
 object Usage:
-  private val log = LoggerFactory.getLogger("orca.events")
+  private val log = Logger("orca.events")
 
   val empty: Usage = Usage(
     freshInputTokens = 0L,
