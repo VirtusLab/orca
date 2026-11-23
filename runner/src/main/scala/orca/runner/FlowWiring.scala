@@ -5,6 +5,7 @@ import orca.agents.{
   CodexAgent,
   DefaultPrompts,
   GeminiAgent,
+  CursorAgent,
   OpencodeAgent,
   PiAgent,
   Prompts
@@ -33,6 +34,7 @@ private[orca] case class FlowWiring(
     opencode: Option[AgentWiring => Ox ?=> OpencodeAgent] = None,
     pi: Option[AgentWiring => Ox ?=> PiAgent] = None,
     gemini: Option[AgentWiring => Ox ?=> GeminiAgent] = None,
+    cursor: Option[AgentWiring => Ox ?=> CursorAgent] = None,
     // Set only by tests: `flow(...)` has no `git` argument.
     git: Option[RuntimeGit] = None,
     gh: Option[GitHubTool] = None,

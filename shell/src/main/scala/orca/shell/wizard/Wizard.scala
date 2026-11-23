@@ -41,7 +41,7 @@ private[shell] class Wizard(
       else AgentSettings.empty
 
     val detected = BackendTag.values
-      .filter(tag => probe(tag.harnessName))
+      .filter(tag => probe(tag.cliBinary))
       .toSet
     val fallback =
       BackendTag.values.find(detected.contains).getOrElse(BackendTag.ClaudeCode)

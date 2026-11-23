@@ -8,17 +8,19 @@ import orca.agents.{
   CodexAgent,
   GeminiAgent,
   OpencodeAgent,
-  PiAgent
+  PiAgent,
+  CursorAgent
 }
 import orca.backend.AgentWiring
 import orca.backend.claude.ClaudeAgents
 import orca.backend.codex.CodexAgents
+import orca.backend.cursor.CursorAgents
 import orca.backend.gemini.GeminiAgents
 import orca.backend.opencode.OpencodeAgents
 import orca.backend.pi.PiAgents
 import ox.{ResourceScope, releaseAfterScope}
 
-/** The five agents wired for one attempt — the [[orca.AgentSet]] the
+/** The wired agents for one attempt — the [[orca.AgentSet]] the
   * `flow(...)` lead selector resolves against. Built (via
   * [[WiredAgents.build]]) before the `FlowContext` exists; the attempt's
   * resource scope closes them (see [[WiredAgents.closeAfterScope]]).
@@ -28,10 +30,11 @@ private[orca] final class WiredAgents(
     val codex: CodexAgent,
     val opencode: OpencodeAgent,
     val pi: PiAgent,
-    val gemini: GeminiAgent
+    val gemini: GeminiAgent,
+    val cursor: CursorAgent
 ) extends AgentSet:
 
-  /** The five wired agents keyed by backend tag, derived from
+  /** Wired agents keyed by backend tag, derived from
     * [[AgentSet.agentFor]] — the single place the tag-to-agent mapping is
     * written out — rather than restating it here.
     */
@@ -42,7 +45,7 @@ private[orca] final class WiredAgents(
     */
   def all: List[Agent[?]] = byTag.values.toList
 
-  /** True when `a` runs on one of the five wired backends — a wired agent
+  /** True when `a` runs on a wired backend — a wired agent
     * itself or a builder-derived sibling (`_.claude.opus`, `.withReadOnly`, …).
     * Used only for the foreign-lead warning.
     */
@@ -74,7 +77,10 @@ private[orca] object WiredAgents:
         wiring.pi.map(_(agentWiring)).getOrElse(PiAgents.default(agentWiring)),
       gemini = wiring.gemini
         .map(_(agentWiring))
-        .getOrElse(GeminiAgents.default(agentWiring))
+        .getOrElse(GeminiAgents.default(agentWiring)),
+      cursor = wiring.cursor
+        .map(_(agentWiring))
+        .getOrElse(CursorAgents.default(agentWiring))
     )
 
   /** Closes `agents` when the enclosing scope ends. */

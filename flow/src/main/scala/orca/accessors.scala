@@ -10,7 +10,8 @@ import orca.agents.{
   CodexAgent,
   GeminiAgent,
   OpencodeAgent,
-  PiAgent
+  PiAgent,
+  CursorAgent
 }
 
 // Top-level accessors that resolve against the ambient FlowContext.
@@ -22,6 +23,7 @@ def codex(using ctx: FlowContext): CodexAgent = ctx.codex
 def opencode(using ctx: FlowContext): OpencodeAgent = ctx.opencode
 def pi(using ctx: FlowContext): PiAgent = ctx.pi
 def gemini(using ctx: FlowContext): GeminiAgent = ctx.gemini
+def cursor(using ctx: FlowContext): CursorAgent = ctx.cursor
 def git(using ctx: FlowContext): GitTool = ctx.git
 def gh(using ctx: FlowContext): GitHubTool = ctx.gh
 def fs(using ctx: FlowContext): FsTool = ctx.fs

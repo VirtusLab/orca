@@ -45,12 +45,14 @@ private[shell] object ResumeCommand:
       if wireId.isBlank || wireId.startsWith("-") then
         Left(s"recorded wireId `$wireId` is not a valid session id")
       else
-        val binary = s.backend.harnessName
+        val binary = s.backend.cliBinary
         s.backend match
           case BackendTag.ClaudeCode =>
             Right(Seq(binary, "--resume", wireId))
           case BackendTag.Codex    => Right(Seq(binary, "resume", wireId))
           case BackendTag.Opencode => Right(Seq(binary, "--session", wireId))
+          case BackendTag.Cursor =>
+            Right(Seq(binary, "-p", "--resume", wireId))
           case BackendTag.Gemini =>
             geminiIndex(wireId) match
               case Some(index) =>

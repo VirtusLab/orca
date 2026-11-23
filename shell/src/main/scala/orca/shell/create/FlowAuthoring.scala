@@ -78,7 +78,7 @@ private[shell] object FlowAuthoring:
     * pinned model only costs the local fallback.
     */
   def slugArgv(agent: AgentSpec, prompt: String): Seq[String] =
-    val binary = agent.backend.harnessName
+    val binary = agent.backend.cliBinary
     val pin = agent.model.toSeq.flatMap(m => Seq("--model", m))
     agent.backend match
       case BackendTag.ClaudeCode =>
@@ -86,7 +86,9 @@ private[shell] object FlowAuthoring:
       case BackendTag.Codex => Seq(binary, "exec") ++ pin :+ prompt
       case BackendTag.Pi    => Seq(binary, "-p") ++ pin :+ prompt
       // gemini's `-p` takes the prompt as its value.
-      case BackendTag.Gemini   => Seq(binary) ++ pin ++ Seq("-p", prompt)
+      case BackendTag.Gemini => Seq(binary) ++ pin ++ Seq("-p", prompt)
+      case BackendTag.Cursor =>
+        Seq(binary, "-p", "--output-format", "text") ++ pin :+ prompt
       case BackendTag.Opencode => Seq(binary, "run") ++ pin :+ prompt
 
   /** The cheap slug-suggestion prompt: asks for nothing but a bare filename, so

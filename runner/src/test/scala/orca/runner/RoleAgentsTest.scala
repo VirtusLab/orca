@@ -9,7 +9,8 @@ import orca.agents.{
   GeminiAgent,
   Model,
   OpencodeAgent,
-  PiAgent
+  PiAgent,
+  CursorAgent
 }
 import orca.review.ReviewerPrompts
 import orca.settings.{AgentSettings, AgentSpec}
@@ -331,6 +332,7 @@ class RoleAgentsTest extends munit.FunSuite:
       codex: CodexAgent = stub(BackendTag.Codex),
       opencode: OpencodeAgent = stub(BackendTag.Opencode),
       pi: PiAgent = stub(BackendTag.Pi),
-      gemini: GeminiAgent = stub(BackendTag.Gemini)
+      gemini: GeminiAgent = stub(BackendTag.Gemini),
+      cursor: CursorAgent = stub(BackendTag.Cursor)
   ): WiredAgents =
-    new WiredAgents(claude, codex, opencode, pi, gemini)
+    new WiredAgents(claude, codex, opencode, pi, gemini, cursor)

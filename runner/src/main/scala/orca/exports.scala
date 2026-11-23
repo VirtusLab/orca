@@ -30,6 +30,7 @@ export orca.agents.{
   OpencodeAgent,
   PiAgent,
   GeminiAgent,
+  CursorAgent,
   AgentCall,
   AutonomousAgentCall,
   InteractiveAgentCall,
@@ -139,6 +140,8 @@ export orca.backend.codex.CodexAgents
 export orca.backend.codex.CodexAgents.mini
 export orca.backend.gemini.GeminiAgents
 export orca.backend.gemini.GeminiAgents.flash
+export orca.backend.cursor.CursorAgents
+export orca.backend.cursor.CursorAgents.composer
 export orca.backend.pi.PiAgents
 export orca.backend.opencode.OpencodeAgents
 export orca.backend.opencode.OpencodeAgents.{
