@@ -282,7 +282,9 @@ private[backend] object DecodedTurn:
     try
       for raw <- source.errorLines do
         OrcaDebug.traceStream(decoder.backendName, "stderr", raw)
-        val line = TerminalControl.stripControlSequences(raw).trim
+        val line = decoder.stderrDiagnostic(
+          TerminalControl.stripControlSequences(raw).trim
+        )
         if log.surfaces(line, decoder.isStderrNoise) then
           neutral(TurnEvent.Error(s"${decoder.backendName}: $line"))
           log = log.add(line)

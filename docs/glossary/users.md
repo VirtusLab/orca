@@ -34,8 +34,8 @@ in the [developer glossary](developers.md).
 
 ## Agents and conversations
 
-- **harness** (also **backend**) — A harness is the coding-agent CLI Orca
-  drives: `claude`, `codex`, `opencode`, `pi` or `gemini`.
+- **harness** (also **backend**) — A harness is a coding-agent CLI Orca
+  drives. See [Backends](../api/backends.md) for the supported harnesses.
 - **agent** — An agent is a harness with a model and tool settings, such as
   `claude`, `codex.mini` or `codingAgent`. See [Backends](../api/backends.md).
 - **role agent** — A role agent is `planningAgent`, `codingAgent` or

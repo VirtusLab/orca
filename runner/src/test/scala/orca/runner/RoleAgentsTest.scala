@@ -61,6 +61,23 @@ class RoleAgentsTest extends munit.FunSuite:
     assert(roles.planning.sharesBackendWith(wired.claude))
     assertEquals(roles.planning.config.model, Some(Model("claude-opus-x")))
 
+  test(
+    "Cursor settings route every role to the wired backend with its model pin"
+  ):
+    val wired = wiredAgents()
+    val spec = AgentSpec.parse("cursor:composer-2.5").toOption.get
+    val roles = resolvedRoles(
+      AgentSettings(
+        planning = Some(spec),
+        coding = Some(spec),
+        review = Some(spec)
+      ),
+      wired
+    )
+    for role <- List(roles.planning, roles.coding, roles.review) do
+      assert(role.sharesBackendWith(wired.cursor))
+      assertEquals(role.config.model, Some(Model("composer-2.5")))
+
   test("opencode's model pin keeps the raw provider/model string"):
     val wired = wiredAgents()
     val settings = AgentSettings(

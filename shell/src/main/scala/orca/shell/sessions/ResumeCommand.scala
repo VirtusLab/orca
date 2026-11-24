@@ -1,6 +1,8 @@
 package orca.shell.sessions
 
+import orca.OrcaFlowException
 import orca.agents.BackendTag
+import orca.backend.cursor.CursorSessionStore
 
 /** Per-harness interactive resume argv (ADR 0021 §8's resume table). This is
   * harness-session REATTACH — exec'ing the harness CLI's own resume flag
@@ -14,7 +16,7 @@ private[shell] object ResumeCommand:
     * static (no-live-call) check can tell: a wireId-less session — one that
     * never committed a turn. `Right` doesn't mean "definitely resumable" —
     * gemini's row still needs [[build]]'s live index lookup, and pi's its
-    * session-dir check.
+    * session-dir check; Cursor needs verified local history.
     */
   def staticGate(s: RecordedSession): Either[String, String] =
     s.wireId.toRight(
@@ -22,47 +24,65 @@ private[shell] object ResumeCommand:
     )
 
   /** Left = not resumable: [[staticGate]]'s checks, plus whatever the caller's
-    * live lookups report — gemini's `geminiIndex` (it resumes by index, not by
-    * uuid, so the caller looks the wire id up in
+    * lookups report — gemini's `geminiIndex` (it resumes by index, not by uuid,
+    * so the caller looks the wire id up in
     * [[orca.backend.gemini.GeminiSessionList]]) and pi's `piSessionDir` (its
     * transcripts live on disk;
     * [[orca.shell.actions.SessionAction.piSessionDir]] resolves the path or
-    * says why it can't). Each lookup is a function invoked only by its own
-    * harness's branch, with the already-validated wire id — a non-applicable
-    * lookup is never called, so it can't be mistaken for a failed one.
+    * says why it can't), and Cursor's read-only `cursorHistory` check. Each
+    * lookup is a function invoked only by its own harness's branch, with the
+    * already-validated wire id — a non-applicable lookup is never called, so it
+    * can't be mistaken for a failed one.
     *
-    * Binary names come from [[orca.agents.BackendTag.harnessName]]. Also
-    * rejects a blank wireId or one starting with `-` — passed straight into an
-    * argv slot, such a value could otherwise be parsed as a flag by the harness
-    * CLI.
+    * Binary names come from [[orca.agents.BackendTag.cliBinary]]. Also rejects
+    * a blank wireId or one starting with `-` — passed straight into an argv
+    * slot, such a value could otherwise be parsed as a flag by the harness CLI.
     */
   def build(
       s: RecordedSession,
       geminiIndex: String => Option[Int],
-      piSessionDir: String => Either[String, os.Path]
-  ): Either[String, Seq[String]] =
-    staticGate(s).flatMap: wireId =>
-      if wireId.isBlank || wireId.startsWith("-") then
-        Left(s"recorded wireId `$wireId` is not a valid session id")
-      else
-        val binary = s.backend.cliBinary
-        s.backend match
-          case BackendTag.ClaudeCode =>
-            Right(Seq(binary, "--resume", wireId))
-          case BackendTag.Codex    => Right(Seq(binary, "resume", wireId))
-          case BackendTag.Opencode => Right(Seq(binary, "--session", wireId))
-          case BackendTag.Cursor =>
-            Right(Seq(binary, "-p", "--resume", wireId))
-          case BackendTag.Gemini =>
-            geminiIndex(wireId) match
-              case Some(index) =>
-                Right(Seq(binary, "--resume", index.toString))
-              case None =>
+      piSessionDir: String => Either[String, os.Path],
+      cursorHistory: String => Either[CursorHistoryFailure, Unit]
+  ): Either[OrcaFlowException, Seq[String]] =
+    staticGate(s).left
+      .map(new OrcaFlowException(_))
+      .flatMap: wireId =>
+        if wireId.isBlank || wireId.startsWith("-") then
+          Left(
+            new OrcaFlowException(
+              s"recorded wireId `$wireId` is not a valid session id"
+            )
+          )
+        else
+          val binary = s.backend.cliBinary
+          s.backend match
+            case BackendTag.ClaudeCode =>
+              Right(Seq(binary, "--resume", wireId))
+            case BackendTag.Codex    => Right(Seq(binary, "resume", wireId))
+            case BackendTag.Opencode => Right(Seq(binary, "--session", wireId))
+            case BackendTag.Cursor =>
+              if !CursorSessionStore.validId(wireId) then
                 Left(
-                  s"no matching session found via `$binary --list-sessions`"
+                  new OrcaFlowException(
+                    "the recorded Cursor session id is not a UUID; rerun Orca to re-seed it"
+                  )
                 )
-          case BackendTag.Pi =>
-            // An absolute --session-dir, so the argv doesn't depend on the
-            // child's cwd matching the attempt's workDir.
-            piSessionDir(wireId).map: dir =>
-              Seq(binary, "--session-dir", dir.toString, "--continue")
+              else
+                cursorHistory(wireId).map(_ => Seq(binary, s"--resume=$wireId"))
+            case BackendTag.Gemini =>
+              geminiIndex(wireId) match
+                case Some(index) =>
+                  Right(Seq(binary, "--resume", index.toString))
+                case None =>
+                  Left(
+                    new OrcaFlowException(
+                      s"no matching session found via `$binary --list-sessions`"
+                    )
+                  )
+            case BackendTag.Pi =>
+              // An absolute --session-dir, so the argv doesn't depend on the
+              // child's cwd matching the attempt's workDir.
+              piSessionDir(wireId).left
+                .map(new OrcaFlowException(_))
+                .map: dir =>
+                  Seq(binary, "--session-dir", dir.toString, "--continue")

@@ -1,12 +1,6 @@
 package orca.backend.cursor
 
-import orca.agents.{
-  AutoApprove,
-  AgentConfig,
-  Model,
-  WireSessionId,
-  ToolSet
-}
+import orca.agents.{AutoApprove, AgentConfig, Model, WireSessionId, ToolSet}
 import orca.agents.BackendTag
 
 class CursorArgsTest extends munit.FunSuite:
@@ -15,7 +9,14 @@ class CursorArgsTest extends munit.FunSuite:
     val args = CursorArgs.headless("summarize", AgentConfig())
     assertEquals(
       args,
-      Seq("cursor-agent", "-p", "--output-format", "stream-json", "--force", "summarize")
+      Seq(
+        "cursor-agent",
+        "-p",
+        "--output-format",
+        "stream-json",
+        "--force",
+        "summarize"
+      )
     )
 
   test("headless passes --model verbatim from AgentConfig"):
@@ -34,11 +35,24 @@ class CursorArgsTest extends munit.FunSuite:
     assert(args.containsSlice(Seq("--resume", "sess-abc")))
     assertEquals(args.last, "continue")
 
-  test("ToolSet.ReadOnly maps to --plan"):
-    val args = CursorArgs.headless("x", AgentConfig().copy(tools = ToolSet.ReadOnly))
-    assert(args.contains("--plan"))
-
   test("AutoApprove.All maps to --force"):
     val args =
-      CursorArgs.headless("x", AgentConfig().copy(autoApprove = AutoApprove.All))
+      CursorArgs.headless(
+        "x",
+        AgentConfig().copy(autoApprove = AutoApprove.All)
+      )
     assert(args.contains("--force"))
+
+  for tools <- List(ToolSet.ReadOnly, ToolSet.NetworkOnly, ToolSet.NoTools) do
+    test(s"$tools retains plan without force on fresh and resumed calls"):
+      val config = AgentConfig(tools = tools)
+      val resumed = CursorArgs.resume(
+        WireSessionId[BackendTag.Cursor.type](
+          "6f0f1234-5678-4abc-9def-000000000001"
+        ),
+        "continue",
+        config
+      )
+      for argv <- List(CursorArgs.headless("fresh", config), resumed) do
+        assert(argv.contains("--plan"))
+        assert(!argv.contains("--force"))

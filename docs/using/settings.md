@@ -60,7 +60,7 @@ plays each role. They are valid in both files and are single-valued, so a
 repeated agent key is an error. The value has the form
 `harness[:model][@effort]`. The model is split off at the first `:`, so a model
 id containing `:` survives intact. The `harness` part is one of `claude`,
-`codex`, `opencode`, `pi` or `gemini`; any other name is an error that lists
+`codex`, `opencode`, `pi`, `gemini` or `cursor`; any other name is an error that lists
 the valid ones.
 
 ```properties
@@ -68,6 +68,13 @@ planningAgent = claude:opus@high
 codingAgent = codex:gpt-5-mini
 reviewAgent = opencode:anthropic/claude-haiku-5-5
 ```
+
+Cursor uses the settings name `cursor` and the installed binary
+`cursor-agent`. For example, `codingAgent = cursor:composer-2.5` selects
+Cursor for coding; the same value works for planning and review. Bare
+`cursor` defaults to `composer-2.5`. Cursor has no `@effort` setting or
+Orca `ask_user` bridge. See [Cursor trust and sessions](agent-clis.md#cursor-agent)
+before using it in a fresh checkout or worktree.
 
 The model part is passed to the harness verbatim, and Orca does not validate
 model ids. There is one exception: claude's bare `haiku` alias is sent as

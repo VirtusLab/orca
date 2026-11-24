@@ -235,7 +235,8 @@ class WizardTest extends munit.FunSuite:
           BackendTag.Codex,
           BackendTag.Opencode,
           BackendTag.Pi,
-          BackendTag.Gemini
+          BackendTag.Gemini,
+          BackendTag.Cursor
         )
       assertEquals(harnessMenus, List.fill(3)(expectedOrder))
 
@@ -837,3 +838,28 @@ class WizardTest extends munit.FunSuite:
         !output.contains("Setting up Orca"),
         s"reconfigure must not print the launch intro, got:\n$output"
       )
+
+  test(
+    "Cursor detection probes cursor-agent and persists cursor role settings"
+  ):
+    withTempPath: path =>
+      val ui = ScriptedUi(
+        selectScript = List.fill(3)(UiOutcome.Selected(BackendTag.Cursor)),
+        inputScript = List.fill(3)(UiOutcome.Selected("composer-2.5"))
+      )
+      var seen = Set.empty[String]
+      assert(
+        Wizard(
+          ui,
+          binary =>
+            seen = seen + binary
+            binary == "cursor-agent"
+          ,
+          path
+        ).run(reconfigure = false)
+      )
+      assert(seen.contains("cursor-agent"))
+      assert(!seen.contains("cursor"))
+      assertEquals(ui.recordedFirstRows, List.fill(3)(BackendTag.Cursor))
+      for role <- List("planningAgent", "codingAgent", "reviewAgent") do
+        assert(os.read(path).contains(s"$role = cursor:composer-2.5"))

@@ -1,14 +1,6 @@
 package orca.backend.cursor
 
-import orca.agents.{
-  Model,
-  AutoApprove,
-  BackendTag,
-  SessionId,
-  StructuredOutputMode,
-  ToolSet,
-  TurnDispatch
-}
+import orca.agents.{Model, BackendTag, StructuredOutputMode}
 import orca.backend.{
   AskUserChannel,
   LiveTurn,
@@ -26,7 +18,8 @@ import ox.Ox
 /** Cursor backend via `cursor-agent -p --output-format stream-json`. */
 private[orca] class CursorBackend(
     cli: CliRunner,
-    override val workDir: os.Path = os.pwd
+    override val workDir: os.Path = os.pwd,
+    chatsRoot: os.Path = CursorSessionStore.defaultChatsRoot
 ) extends AgentBackend[BackendTag.Cursor.type]:
 
   val tag: BackendTag.Cursor.type = BackendTag.Cursor
@@ -39,13 +32,10 @@ private[orca] class CursorBackend(
   def cheapModel(leading: Option[Model]): Option[Model] =
     leading.orElse(Some(Model("composer-2.5")))
 
-  /** Server-minted session ids from the init event; resume via `--resume`. The
-    * agent exposes no list-sessions command, so the probe only checks id shape.
-    */
   val sessions: SessionSupport[BackendTag.Cursor.type] =
     SessionSupport.durable(
       IdScheme.ServerMinted,
-      id => SessionId.isSafe(id)
+      id => CursorSessionStore.resumable(workDir, id, chatsRoot, cli)
     )
 
   override protected[orca] def open(
@@ -63,6 +53,7 @@ private[orca] class CursorBackend(
       process.closeStdin()
       CursorTurn(
         process,
+        workDir = workDir,
         openingPrompt = mode.openingPrompt,
         outputSchema = outputSchema,
         askUser = AskUserChannel.Unavailable
@@ -71,4 +62,4 @@ private[orca] class CursorBackend(
 
 private[orca] object CursorBackend:
   private[orca] def create(cli: CliRunner, workDir: os.Path): CursorBackend =
-    new CursorBackend(cli, workDir)
+    new CursorBackend(cli, workDir = workDir)

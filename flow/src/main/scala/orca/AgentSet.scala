@@ -29,9 +29,9 @@ trait AgentSet:
   def cursor: CursorAgent
 
   /** Resolve the per-backend agent named by `tag` — the single place a
-    * [[BackendTag]] maps to a wired agent, so a renamed or added case
-    * is one match to update. `WiredAgents.byTag` and `RoleAgents` both resolve
-    * through it.
+    * [[BackendTag]] maps to a wired agent, so a renamed or added case is one
+    * match to update. `WiredAgents.byTag` and `RoleAgents` both resolve through
+    * it.
     */
   private[orca] def agentFor(tag: BackendTag): Agent[?] = tag match
     case BackendTag.ClaudeCode => claude

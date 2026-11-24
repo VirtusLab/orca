@@ -6,6 +6,7 @@ import orca.events.OrcaListener
 import orca.subprocess.StubCliRunner
 import orca.backend.claude.ClaudeBackend
 import orca.backend.codex.CodexBackend
+import orca.backend.cursor.CursorBackend
 import orca.backend.gemini.GeminiBackend
 import orca.backend.opencode.OpencodeBackend
 import orca.backend.pi.PiBackend
@@ -42,21 +43,23 @@ class EnforcementTableTest extends munit.FunSuite:
   import Enforcement.*
 
   /** One expected row, by backend. Named arguments at the call sites, and a
-    * signature a sixth backend has to widen, keep the columns from drifting.
+    * signature a new backend has to widen, keep the columns from drifting.
     */
   private def row(
       claude: Enforcement,
       codex: Enforcement,
       gemini: Enforcement,
       opencode: Enforcement,
-      pi: Enforcement
+      pi: Enforcement,
+      cursor: Enforcement
   ): Map[BackendTag, Enforcement] =
     Map(
       BackendTag.ClaudeCode -> claude,
       BackendTag.Codex -> codex,
       BackendTag.Gemini -> gemini,
       BackendTag.Opencode -> opencode,
-      BackendTag.Pi -> pi
+      BackendTag.Pi -> pi,
+      BackendTag.Cursor -> cursor
     )
 
   private val readOnly: Map[BackendTag, Enforcement] = row(
@@ -64,7 +67,8 @@ class EnforcementTableTest extends munit.FunSuite:
     codex = Hard,
     gemini = PromptOnly,
     opencode = Hard,
-    pi = Hard
+    pi = Hard,
+    cursor = PromptOnly
   )
 
   private val networkOnly: Map[BackendTag, Enforcement] = row(
@@ -72,7 +76,8 @@ class EnforcementTableTest extends munit.FunSuite:
     codex = PromptOnly,
     gemini = PromptOnly,
     opencode = Hard,
-    pi = PromptOnly
+    pi = PromptOnly,
+    cursor = PromptOnly
   )
 
   private val noTools: Map[BackendTag, Enforcement] = row(
@@ -80,7 +85,8 @@ class EnforcementTableTest extends munit.FunSuite:
     codex = PromptOnly,
     gemini = PromptOnly,
     opencode = Hard,
-    pi = Hard
+    pi = Hard,
+    cursor = PromptOnly
   )
 
   private val fullAll: Map[BackendTag, Enforcement] = row(
@@ -88,7 +94,8 @@ class EnforcementTableTest extends munit.FunSuite:
     codex = Hard,
     gemini = Hard,
     opencode = Ignored,
-    pi = Ignored
+    pi = Ignored,
+    cursor = Hard
   )
 
   private val fullOnlyFresh: Map[BackendTag, Enforcement] = row(
@@ -96,7 +103,8 @@ class EnforcementTableTest extends munit.FunSuite:
     codex = SandboxApprox,
     gemini = Ignored,
     opencode = Ignored,
-    pi = Ignored
+    pi = Ignored,
+    cursor = Ignored
   )
 
   private val fullOnlyResumed: Map[BackendTag, Enforcement] = row(
@@ -104,7 +112,8 @@ class EnforcementTableTest extends munit.FunSuite:
     codex = Ignored,
     gemini = Ignored,
     opencode = Ignored,
-    pi = Ignored
+    pi = Ignored,
+    cursor = Ignored
   )
 
   private val expected: Map[
@@ -186,7 +195,8 @@ class EnforcementTableTest extends munit.FunSuite:
         new CodexBackend(cli),
         new GeminiBackend(cli),
         OpencodeBackend(cli, TempDirs.dir(), OrcaListener.noop),
-        PiBackend.forInspection(cli)
+        PiBackend.forInspection(cli),
+        CursorBackend.create(cli, TempDirs.dir())
       )
       use(
         (for

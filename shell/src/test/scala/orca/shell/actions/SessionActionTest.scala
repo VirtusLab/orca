@@ -5,6 +5,8 @@ import orca.shell.sessions.{AttemptRecord, RecordedSession}
 import orca.shell.sessions.EventLogFixtures.{attemptRecord, durable, selection}
 import orca.testkit.TempDirs
 import orca.backend.pi.PiSessionStore
+import orca.backend.cursor.CursorSessionStore
+import orca.subprocess.{CliResult, StubCliRunner}
 
 class SessionActionTest extends munit.FunSuite:
 
@@ -94,3 +96,42 @@ class SessionActionTest extends munit.FunSuite:
       SessionAction.validatedWorkDir(dir.toString),
       Left(s"the recorded working directory $dir no longer exists")
     )
+
+  test("Cursor history check accepts the recorded checkout only"):
+    val workDir = TempDirs.dir()
+    val chats = TempDirs.dir()
+    val id = "6f0f1234-5678-4abc-9def-000000000001"
+    os.write(
+      CursorSessionStore.database(workDir, id, chats).get,
+      "{}\n",
+      createFolders = true
+    )
+    val cli = new StubCliRunner(CliResult(0, "1\n", ""))
+    assertEquals(
+      SessionAction.cursorHistory(id, workDir, chats, cli),
+      Right(())
+    )
+    val elsewhere = TempDirs.dir()
+    val Left(reason) =
+      SessionAction.cursorHistory(id, elsewhere, chats, cli): @unchecked
+    assert(reason.getMessage.contains(elsewhere.toString))
+    assert(reason.getMessage.contains("rerun Orca"))
+
+  test(
+    "Cursor interactive continuation refuses an unverified store with recovery instructions"
+  ):
+    val workDir = TempDirs.dir()
+    val chats = TempDirs.dir()
+    val id = "6f0f1234-5678-4abc-9def-000000000001"
+    os.write(
+      CursorSessionStore.database(workDir, id, chats).get,
+      "database fixture",
+      createFolders = true
+    )
+    val cli = new StubCliRunner(CliResult(0, "0\n", ""))
+    val Left(reason) =
+      SessionAction.cursorHistory(id, workDir, chats, cli): @unchecked
+    assert(reason.getMessage.contains(workDir.toString))
+    assert(reason.getMessage.contains("sqlite3 on PATH"))
+    assert(reason.getMessage.contains("rerun Orca"))
+    assert(reason.getMessage.contains("re-seed"))

@@ -42,6 +42,9 @@ private[backend] trait LineDecoder[B <: BackendTag, S]:
     */
   def onUnsettledEnd(): Unit = ()
 
+  /** Enrich a subprocess diagnostic with backend-specific recovery guidance. */
+  def stderrDiagnostic(line: String): String = line
+
   /** Known-benign stderr lines, dropped instead of surfacing as an `Error`.
     * Sees the line stripped of terminal control sequences and trimmed.
     */

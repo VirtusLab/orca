@@ -1,6 +1,8 @@
 package orca.shell.create
 
 import orca.agents.BackendTag
+import orca.backend.cursor.CursorWorkspaceTrust
+import orca.shell.ui.ShellOutput
 import orca.settings.{AgentSpec, SettingsFile, SettingsScope}
 import orca.shell.{OrcaBuild, ShellEnv, Tier}
 import orca.util.PromptResource
@@ -88,7 +90,7 @@ private[shell] object FlowAuthoring:
       // gemini's `-p` takes the prompt as its value.
       case BackendTag.Gemini => Seq(binary) ++ pin ++ Seq("-p", prompt)
       case BackendTag.Cursor =>
-        Seq(binary, "-p", "--output-format", "text") ++ pin :+ prompt
+        Seq(binary, "-p", "--plan", "--output-format", "text") ++ pin :+ prompt
       case BackendTag.Opencode => Seq(binary, "run") ++ pin :+ prompt
 
   /** The cheap slug-suggestion prompt: asks for nothing but a bare filename, so
@@ -177,7 +179,7 @@ private[shell] object FlowAuthoring:
       runner: (Seq[String], Long) => Option[String]
   ): String =
     val lastLine =
-      runner(slugArgv(agent, prompt), timeoutMillis).toList
+      slugReply(runner(slugArgv(agent, prompt), timeoutMillis), os.pwd).toList
         .flatMap(_.linesIterator.map(_.trim))
         .filter(_.nonEmpty)
         .lastOption
@@ -244,13 +246,14 @@ private[shell] object FlowAuthoring:
       runner: (Seq[String], Long) => Option[String] = runSlugProc
   )(using env: ShellEnv): String =
     val stem = toKebab(sourceName.stripSuffix(".sc"))
-    val descriptor = runner(
+    val reply = runner(
       slugArgv(
         configuredCodingAgent(env.configHome.settings),
         forkSlugPrompt(sourceName, sourceDescription, changes)
       ),
       timeoutMillis
-    ).toList
+    )
+    val descriptor = slugReply(reply, env.workDir).toList
       .flatMap(_.linesIterator.map(_.trim))
       .filter(_.nonEmpty)
       .lastOption
@@ -261,26 +264,42 @@ private[shell] object FlowAuthoring:
       case Some(d) => sanitizeSlug(s"$stem-$d")
       case None    => forkFilenameDefault(sourceName)
 
-  /** Runs `argv` to completion within `timeoutMillis`, returning its stdout on
-    * a zero exit; `None` on a timeout (the process tree is killed — os-lib's
-    * `destroy` recurses into `children()`, so the agent CLI's own subprocesses
-    * go with it — rather than left running), a non-zero exit, or any failure to
-    * even start (a missing binary throws from `os.proc`'s spawn).
-    * [[suggestFilename]]'s production runner.
+  /** Captures both streams within the timeout. Trust refusals reach
+    * [[slugReply]] even on a non-zero exit; other failures use the local name.
+    * os-lib kills a timed-out process tree before returning.
     */
-  private def runSlugProc(
+  private[shell] def runSlugProc(
       argv: Seq[String],
       timeoutMillis: Long
   ): Option[String] =
     try
-      val proc =
-        os.proc(argv).spawn(stdin = os.Pipe, stdout = os.Pipe, stderr = os.Pipe)
-      try
-        if proc.waitFor(timeoutMillis) && proc.exitCode() == 0 then
-          Some(proc.stdout.text())
-        else None
-      finally if proc.isAlive() then proc.destroy(shutdownGracePeriod = 0)
+      val result = os
+        .proc(argv)
+        .call(
+          stdin = os.Pipe,
+          stdout = os.Pipe,
+          stderr = os.Pipe,
+          timeout = timeoutMillis,
+          check = false
+        )
+      val out = result.out.text()
+      val diagnostics = out + "\n" + result.err.text()
+      if argv.headOption.exists(arg =>
+          os.Path(arg, os.pwd).last == BackendTag.Cursor.cliBinary
+        ) && CursorWorkspaceTrust.required(diagnostics)
+      then Some(diagnostics)
+      else Option.when(result.exitCode == 0)(out)
     catch case NonFatal(_) => None
+
+  private def slugReply(
+      output: Option[String],
+      workDir: os.Path
+  ): Option[String] =
+    output.filter: text =>
+      if CursorWorkspaceTrust.required(text) then
+        ShellOutput.error(CursorWorkspaceTrust.guidance(workDir))
+        false
+      else true
 
   /** `fileName` (`.sc` suffix ensured) in `tier`'s flows directory, which is
     * created if absent. Refuses on a filename collision — the authored file is

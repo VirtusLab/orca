@@ -18,7 +18,7 @@ orca/
 ├── build.sbt / project/
 ├── tools/      # tool traits + os-backed impls (git/gh/fs), internal LLM SPI + session durability, InStage, events, subprocess
 ├── flow/       # stage/display/fail + FlowContext/FlowControl; orca.{plan,review,pr,progress}
-├── claude/ codex/ gemini/ opencode/ pi/   # one module per coding-agent backend
+├── claude/ codex/ gemini/ opencode/ pi/ cursor/   # one module per coding-agent backend
 ├── runner/     # flow() entry, DefaultFlowContext/DefaultFlowControl, FlowLifecycle, terminal UI
 └── shell/      # `orca-shell`, the `orca` CLI's interactive front-end (ADR 0021)
 ```
@@ -29,8 +29,8 @@ Dependency graph:
 tools   (standalone)
   ├── flow                          → tools
   ├── claude / codex / gemini /
-  │     opencode / pi               → tools
-  ├── runner                        → tools + flow + all five backends
+  │     opencode / pi / cursor      → tools
+  ├── runner                        → tools + flow + all six backends
   └── shell                         → runner (published `orca`)
 ```
 
@@ -127,7 +127,7 @@ most easily broken:
   kill/restart resumes a committed `resumeWireId` the same way the file-probed
   backends do, live-verified 2026-07-08) — and the `IdScheme`: `ClientClaimed`
   (claude/pi — the client id IS the wire id, put on the wire at spawn) or
-  `ServerMinted` (codex/gemini/opencode — the server mints the wire id, learned
+  `ServerMinted` (codex/gemini/opencode/cursor — the server mints the wire id, learned
   from the protocol and registered after the turn). `Agent` is a final class
   over one `AgentBackend` instance; its `dispatchFor` / `resumeWireId` /
   `rehydrateResumeWireId` read that backend's `sessions`, and every builder
@@ -237,13 +237,13 @@ most easily broken:
   which walks the full (backend × ToolSet × AutoApprove × dispatch) product.
   Don't hand-edit it: when the test fails, paste the block it prints.
 
-  | tools, approve         | ClaudeCode | Codex         | Opencode | Pi         | Gemini     |
-  |------------------------|------------|---------------|----------|------------|------------|
-  | ReadOnly, *            | Hard       | Hard          | Hard     | Hard       | PromptOnly |
-  | NetworkOnly, *         | Hard       | PromptOnly    | Hard     | PromptOnly | PromptOnly |
-  | Full, All              | Hard       | Hard          | Ignored  | Ignored    | Hard       |
-  | Full, Only(_) / Only() | Hard       | SandboxApprox | Ignored  | Ignored    | Ignored    |
-  | NoTools, *             | Hard       | PromptOnly    | Hard     | Hard       | PromptOnly |
+  | tools, approve         | ClaudeCode | Codex         | Opencode | Pi         | Gemini     | Cursor     |
+  |------------------------|------------|---------------|----------|------------|------------|------------|
+  | ReadOnly, *            | Hard       | Hard          | Hard     | Hard       | PromptOnly | PromptOnly |
+  | NetworkOnly, *         | Hard       | PromptOnly    | Hard     | PromptOnly | PromptOnly | PromptOnly |
+  | Full, All              | Hard       | Hard          | Ignored  | Ignored    | Hard       | Hard       |
+  | Full, Only(_) / Only() | Hard       | SandboxApprox | Ignored  | Ignored    | Ignored    | Ignored    |
+  | NoTools, *             | Hard       | PromptOnly    | Hard     | Hard       | PromptOnly | PromptOnly |
 
   A resumed turn is classified the same, except:
   - Codex, Full, Only(_) / Only(): Ignored, not SandboxApprox
@@ -268,6 +268,20 @@ most easily broken:
   - opencode: `webfetch` left unset, so the server's own default decides
     (`ReadOnly` disables it by name).
   - pi: `bash` — pi has no web tool, and `bash` also writes.
+  - cursor: `--plan`; no mechanical network-only tool gate. Restricted tiers
+    are `PromptOnly`; `Full/All` uses `--force`, and `Full/Only` ignores the
+    allowlist. Cursor has prompt-enforced structured output and no `ask_user`
+    bridge. A Workspace Trust Required refusal requires interactive
+    `cursor-agent` trust in the exact checkout, then rerunning Orca; fresh
+    worktrees may need their own decision. The shell's filename suggestion
+    surfaces this guidance and keeps its local fallback.
+
+  Cursor's durable recovery and interactive continuation share
+  `CursorSessionStore`. The probe contract and recovery behavior live in
+  [Cursor trust and sessions](docs/using/agent-clis.md#cursor-agent).
+
+  Cursor inputTokens counts fresh input, separate from its cache buckets;
+  absent failure usage stays `TurnDebit.Unobserved` and cost stays unknown.
 
 - **Turn events.** The event grammar (message boundaries, `Option` tool
   names) is specified on `TurnEvent`'s scaladoc and pinned per backend

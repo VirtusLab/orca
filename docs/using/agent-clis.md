@@ -2,7 +2,7 @@
 
 Orca drives the coding-agent CLIs you already have, which it calls
 [harnesses](../glossary/users.md#agents-and-conversations): `claude`, `codex`,
-`opencode`, `pi` and `gemini`. Each harness manages its own authentication,
+`opencode`, `pi`, `gemini` and `cursor-agent`. Each harness manages its own authentication,
 and Orca stores no secrets. Before you run a flow, log in to the harness you
 use, following its own instructions, and to `gh` if the flow opens PRs or reads
 issues.
@@ -91,3 +91,63 @@ baseURL `http://localhost:11434/v1`, your models, and `num_ctx` raised for tool
 use), then select a model with `opencode.withModel("ollama", "qwen3-coder")`
 (see [Backends](../api/backends.md)). This way you can declare several models
 and switch between them per turn.
+
+## Cursor Agent
+
+Orca selects Cursor with the settings name `cursor` and detects/spawns the
+`cursor-agent` binary. Authenticate it interactively before running a flow.
+Orca preserves your existing trust and permission settings.
+
+An unfamiliar checkout, including a fresh `--worktree` checkout, can refuse
+print-mode calls with **Workspace Trust Required**. Orca reports the exact
+checkout path. Open a terminal in that directory, run `cursor-agent`
+interactively, explicitly trust that checkout, exit, then rerun the same Orca
+command. Trusting the parent checkout may not trust its worktrees. The shell's
+flow-filename suggestion reports the same instructions and uses its local
+fallback name. Orca does not grant workspace trust automatically.
+
+Restricted turns (`ReadOnly`, `NetworkOnly`, `NoTools`) keep `--plan`, whose
+limits are prompt-only. Full turns use `--force`; Cursor cannot enforce an
+`AutoApprove.Only(...)` allowlist. Structured output is prompt-enforced, and
+Orca's `ask_user` bridge is unavailable.
+
+Cursor mints the session UUID. To recover across attempts, Orca uses optional
+`sqlite3` on PATH to verify persisted history in Cursor's chat database:
+
+```text
+~/.cursor/chats/<checkout-path-md5>/<UUID>/store.db
+```
+
+The checkout is resolved to its canonical absolute path through symlinks
+(including macOS `/var` to `/private/var`). The directory key is the lowercase
+MD5 of that path's UTF-8 bytes. The UUID is validated before constructing the
+path, so history is specific to that checkout. JSONL transcript exports do not
+establish that Cursor can restore the conversation.
+
+Orca opens a properly encoded absolute file URI with `mode=ro&immutable=1`,
+using `sqlite3 -batch -noheader -readonly -init /dev/null` and one scalar query:
+
+```sql
+SELECT EXISTS (SELECT 1 FROM meta WHERE key = '0') AND EXISTS (SELECT 1 FROM blobs);
+```
+
+Only a successful scalar `1` verifies history. The check reads no message
+contents and neither invokes Cursor nor creates a store. A missing `sqlite3`,
+missing or unreadable database, corrupt or unsupported schema, or initialized
+store without history makes a durable flow re-seed with its existing seed.
+Immutable mode ignores WAL files; history available only in an uncheckpointed
+WAL safely re-seeds.
+Confirmed same-attempt conversations continue without another disk probe.
+Cursor can silently open a blank conversation for a nonexistent resume UUID,
+so attempting a resume is not a history check.
+
+`orca continue` requires the recorded working directory and the same database
+check. When history cannot be verified, it refuses: install `sqlite3` on PATH
+if missing and retry, or rerun Orca in the recorded checkout to re-seed the
+conversation. Verified history hands the terminal to
+`cursor-agent --resume=UUID` in that checkout, without print mode. Interactive
+continuation does not re-seed.
+
+Cursor's `inputTokens` is fresh uncached input; cache reads and writes are
+separate buckets. Orca sums them for total input tokens and leaves dollar cost
+unknown when Cursor supplies no price.

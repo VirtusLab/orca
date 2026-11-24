@@ -1,8 +1,8 @@
 # Backends
 
-A **backend** is a harness as a flow sees it. There are five of them,
-available in a flow body as the agents `claude`, `codex`, `opencode`, `pi` and
-`gemini`. They all expose the same calls, described in
+A **backend** is a harness as a flow sees it. There are six of them,
+available in a flow body as the agents `claude`, `codex`, `opencode`, `pi`,
+`gemini` and `cursor`. They all expose the same calls, described in
 [Talking to agents](../authoring/talking-to-agents.md):
 
 - durable: `session(name, seed): FlowSession`, then `.run(prompt)` or
@@ -14,11 +14,11 @@ available in a flow body as the agents `claude`, `codex`, `opencode`, `pi` and
 Note that `interactive` exists only on `resultAs[O]`. [`FlowSession` and
 `Chat`](data-structures.md#conversations) are the handles you get back.
 
-All five backends also share the builders `withModel`, `withCheapModel`,
+All six backends also share the builders `withModel`, `withCheapModel`,
 `withAutoApprove`, `withSystemPrompt`, `withName`, `withReadOnly`,
 `withNetworkOnly` and `withSelfManagedGit`; see
 [Choosing agents](../authoring/choosing-agents.md) for what each one does. All
-but `gemini` also have `withEffort`.
+but `gemini` and `cursor` also have `withEffort`.
 `Model` wraps a model id string.
 
 The sections below describe what differs between the backends: which model
@@ -79,6 +79,31 @@ id.
 
 Structured output is prompt-enforced, since Gemini has no schema flag.
 `withReadOnly` maps to `--approval-mode plan`.
+
+## `cursor`
+
+Cursor Agent, driven through `cursor-agent -p --output-format stream-json`.
+Bare `cursor` and the `composer` accessor pin `composer-2.5`. `cheap` keeps
+the leading model, falling back to that same pin; `withModel(Model(...))`
+passes another model id verbatim. Cursor has no effort setting.
+
+Structured output is prompt-enforced. Orca's `ask_user` bridge is unavailable.
+`ReadOnly`, `NetworkOnly` and `NoTools` retain `--plan`, with `PromptOnly`
+enforcement: the CLI does not mechanically remove write-capable tools.
+`Full` with `AutoApprove.All` uses `--force` (`Hard` approval enforcement);
+`AutoApprove.Only(...)`, including an empty set, also uses `--force` and its
+allowlist is `Ignored`. These limits apply to fresh and resumed turns.
+
+Durable recovery uses optional `sqlite3` on PATH to verify persisted history in
+Cursor's checkout-scoped `store.db` before resuming a recorded UUID. The path
+uses the lowercase MD5 of the canonical absolute checkout path's UTF-8 bytes.
+A read-only immutable scalar query requires both meta key `0` and at least one
+blob; JSONL exports and database presence alone do not qualify. Unverified
+history (including a missing SQLite CLI or WAL-only history) re-seeds
+the conversation. Same-attempt continuation uses the id already confirmed by a
+completed turn without probing disk.
+See [Cursor trust and sessions](../using/agent-clis.md#cursor-agent) for the
+local history path and interactive continuation behavior.
 
 ## Tool set enforcement and settings
 

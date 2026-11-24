@@ -12,9 +12,9 @@ them.
 Before you start, make sure you have:
 
 - a coding-agent CLI that you are logged in to. Orca calls such a CLI a
-  [harness](../glossary/users.md#agents-and-conversations); the supported ones
-  are `claude`, `codex`, `opencode`, `pi` and `gemini`. See
-  [Agent CLIs](../using/agent-clis.md) for details.
+  [harness](../glossary/users.md#agents-and-conversations). Choose a supported
+  [backend](../api/backends.md) and follow its
+  [CLI setup instructions](../using/agent-clis.md).
 - `git`, and `gh` if you want Orca to open pull requests for you.
 
 The installer takes care of everything else, including scala-cli and a JVM.

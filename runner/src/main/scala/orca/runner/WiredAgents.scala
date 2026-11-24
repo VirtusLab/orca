@@ -20,10 +20,10 @@ import orca.backend.opencode.OpencodeAgents
 import orca.backend.pi.PiAgents
 import ox.{ResourceScope, releaseAfterScope}
 
-/** The wired agents for one attempt — the [[orca.AgentSet]] the
-  * `flow(...)` lead selector resolves against. Built (via
-  * [[WiredAgents.build]]) before the `FlowContext` exists; the attempt's
-  * resource scope closes them (see [[WiredAgents.closeAfterScope]]).
+/** The wired agents for one attempt — the [[orca.AgentSet]] the `flow(...)`
+  * lead selector resolves against. Built (via [[WiredAgents.build]]) before the
+  * `FlowContext` exists; the attempt's resource scope closes them (see
+  * [[WiredAgents.closeAfterScope]]).
   */
 private[orca] final class WiredAgents(
     val claude: ClaudeAgent,
@@ -34,9 +34,9 @@ private[orca] final class WiredAgents(
     val cursor: CursorAgent
 ) extends AgentSet:
 
-  /** Wired agents keyed by backend tag, derived from
-    * [[AgentSet.agentFor]] — the single place the tag-to-agent mapping is
-    * written out — rather than restating it here.
+  /** Wired agents keyed by backend tag, derived from [[AgentSet.agentFor]] —
+    * the single place the tag-to-agent mapping is written out — rather than
+    * restating it here.
     */
   private val byTag: Map[BackendTag, Agent[?]] =
     BackendTag.values.map(t => t -> agentFor(t)).toMap
@@ -45,9 +45,9 @@ private[orca] final class WiredAgents(
     */
   def all: List[Agent[?]] = byTag.values.toList
 
-  /** True when `a` runs on a wired backend — a wired agent
-    * itself or a builder-derived sibling (`_.claude.opus`, `.withReadOnly`, …).
-    * Used only for the foreign-lead warning.
+  /** True when `a` runs on a wired backend — a wired agent itself or a
+    * builder-derived sibling (`_.claude.opus`, `.withReadOnly`, …). Used only
+    * for the foreign-lead warning.
     */
   def isWiredBackend(a: Agent[?]): Boolean = all.exists(_.sharesBackendWith(a))
 

@@ -19,14 +19,10 @@ import orca.backend.cursor.jsonl.{InboundEvent, TerminalStatus}
 import ox.Ox
 
 /** Decodes a `cursor-agent -p --output-format stream-json` turn. */
-private[cursor] object CursorDecoder
+private[cursor] final class CursorDecoder(workDir: os.Path)
     extends LineDecoder[BackendTag.Cursor.type, CursorDecoder.State]:
 
-  final case class State(
-      sessionId: Option[WireSessionId[BackendTag.Cursor.type]],
-      model: Option[String],
-      answer: Vector[String]
-  )
+  import CursorDecoder.State
 
   private type Out = Step[BackendTag.Cursor.type, State]
 
@@ -34,10 +30,20 @@ private[cursor] object CursorDecoder
 
   def terminalMessageNoun: String = "a result event"
 
-  def init: State = State(None, None, Vector.empty)
+  def init: State = State(None, None, Vector.empty, None)
 
   def line(state: State, line: String): Out =
-    InboundEvent.parse(line) match
+    if !line.trim.startsWith("{") && CursorWorkspaceTrust.required(line) then
+      Step.Settle(
+        state,
+        Nil,
+        Settled
+          .Failed(CursorWorkspaceTrust.guidance(workDir), TurnDebit.Unobserved)
+      )
+    else decode(state, InboundEvent.parse(line))
+
+  private def decode(state: State, event: InboundEvent): Out =
+    event match
       case InboundEvent.Init(sessionId, model) =>
         Step.continue(
           state.copy(sessionId = Some(WireSessionId(sessionId)), model = model)
@@ -47,24 +53,57 @@ private[cursor] object CursorDecoder
         else
           Step.continue(
             state.copy(answer = state.answer :+ text),
-            TurnEvent.AssistantTextDelta(text)
+            TurnEvent.AssistantTextDelta(text),
+            TurnEvent.AssistantMessageEnd
           )
+      case InboundEvent.ToolStarted(name, payload) =>
+        Step.continue(
+          state,
+          TurnEvent.AssistantToolCall(toolName = name, rawInput = payload),
+          TurnEvent.AssistantMessageEnd
+        )
+      case InboundEvent.ToolCompleted(name, ok, payload) =>
+        Step.continue(
+          state,
+          TurnEvent.ToolResult(name, ok, payload),
+          TurnEvent.AssistantMessageEnd
+        )
       case InboundEvent.UserEcho => Step.continue(state)
       case InboundEvent.Error(message) =>
-        Step.continue(state, TurnEvent.Error(s"cursor-agent: $message"))
+        if CursorWorkspaceTrust.required(message) then
+          Step.Settle(
+            state,
+            Nil,
+            Settled.Failed(
+              CursorWorkspaceTrust.guidance(workDir),
+              TurnDebit.Unobserved
+            )
+          )
+        else
+          Step.continue(
+            state.copy(error = Some(message)),
+            TurnEvent.Error(s"cursor-agent: $message")
+          )
       case InboundEvent.Result(text, usage, status) =>
         result(state, text, usage, status)
       case InboundEvent.Unknown(_) => Step.continue(state)
+
+  override def stderrDiagnostic(line: String): String =
+    CursorWorkspaceTrust.explain(line, workDir)
+
+  override def protocolContext(state: State): Option[String] = state.error
 
   def failedTurnDebit(state: State): TurnDebit = TurnDebit.Unobserved
 
   private def result(
       state: State,
       terminalText: Option[String],
-      usage: Usage,
+      usage: Option[Usage],
       status: TerminalStatus
   ): Out =
-    val debit = TurnDebit.Observed(usage, state.model.map(Model.apply))
+    val debit = usage.fold[TurnDebit](TurnDebit.Unobserved)(u =>
+      TurnDebit.Observed(u, state.model.map(Model.apply))
+    )
     val output =
       if state.answer.nonEmpty then state.answer.mkString
       else terminalText.getOrElse("")
@@ -74,7 +113,7 @@ private[cursor] object CursorDecoder
           AgentResult(
             sessionId,
             output,
-            usage,
+            usage.getOrElse(Usage.empty),
             state.model.map(Model.apply)
           )
         )
@@ -86,13 +125,30 @@ private[cursor] object CursorDecoder
       case (TerminalStatus.Failure(raw), _) =>
         val description =
           if raw.isEmpty then "a non-success result" else s"result '$raw'"
-        Settled.Failed(s"cursor-agent turn ended with $description", debit)
+        val detail =
+          terminalText.filter(_.nonEmpty).fold("")(text => s": $text")
+        Settled.Failed(
+          CursorWorkspaceTrust.explain(
+            s"cursor-agent turn ended with $description$detail",
+            workDir
+          ),
+          debit
+        )
     Step.Settle(state, Nil, settled)
+
+private[cursor] object CursorDecoder:
+  final case class State(
+      sessionId: Option[WireSessionId[BackendTag.Cursor.type]],
+      model: Option[String],
+      answer: Vector[String],
+      error: Option[String]
+  )
 
 private[cursor] object CursorTurn:
 
   def apply(
       process: PipedCliProcess,
+      workDir: os.Path = os.pwd,
       openingPrompt: Option[String] = None,
       outputSchema: Option[String] = None,
       askUser: AskUserChannel = AskUserChannel.Unavailable
@@ -104,5 +160,5 @@ private[cursor] object CursorTurn:
         outputSchema = outputSchema,
         askUser = askUser
       ),
-      CursorDecoder
+      new CursorDecoder(workDir)
     )

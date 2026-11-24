@@ -724,3 +724,41 @@ class FlowAuthoringTest extends munit.FunSuite:
       bodyLines.exists(line => !line.trim.startsWith("//")),
       s"expected a non-comment statement in the flow body, got: $bodyLines"
     )
+
+  test(
+    "Cursor naming keeps plan mode and surfaces stderr trust refusal before fallback"
+  ):
+    val dir = TempDirs.dir()
+    val binary = dir / "cursor-agent"
+    os.write(binary, "#!/bin/sh\necho 'Workspace Trust Required' >&2\nexit 1\n")
+    os.perms.set(binary, "rwx------")
+    val output = new java.io.ByteArrayOutputStream()
+    val name = Console.withOut(output):
+      FlowAuthoring.suggestFilename(
+        AgentSpec(BackendTag.Cursor, None),
+        "sync issues nightly",
+        runner = (args, timeout) =>
+          assert(args.contains("--plan"))
+          FlowAuthoring.runSlugProc(binary.toString +: args.tail, timeout)
+      )
+    assertEquals(name, "sync-issues-nightly.sc")
+    val notice = output.toString(java.nio.charset.StandardCharsets.UTF_8)
+    assert(notice.contains(os.pwd.toString), notice)
+    assert(notice.contains("interactively trust this exact checkout"), notice)
+    assert(notice.contains("rerun Orca"), notice)
+
+  test("fork naming surfaces trust refusal and retains the local fallback"):
+    val output = new java.io.ByteArrayOutputStream()
+    val name = Console.withOut(output):
+      FlowAuthoring.suggestFilenameForFork(
+        sourceName = "implement.sc",
+        sourceDescription = None,
+        changes = "add checks",
+        runner = (_, _) => Some("Workspace Trust Required")
+      )
+    assertEquals(name, "implement-fork.sc")
+    assert(
+      output
+        .toString(java.nio.charset.StandardCharsets.UTF_8)
+        .contains(summon[ShellEnv].workDir.toString)
+    )
