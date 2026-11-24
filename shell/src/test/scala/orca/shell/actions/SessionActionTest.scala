@@ -6,7 +6,7 @@ import orca.shell.sessions.EventLogFixtures.{attemptRecord, durable, selection}
 import orca.testkit.TempDirs
 import orca.backend.pi.PiSessionStore
 import orca.backend.cursor.CursorSessionStore
-import orca.subprocess.{CliResult, StubCliRunner}
+import orca.subprocess.{FakePipedCliProcess, SpawnStubCliRunner}
 
 class SessionActionTest extends munit.FunSuite:
 
@@ -106,7 +106,7 @@ class SessionActionTest extends munit.FunSuite:
       "{}\n",
       createFolders = true
     )
-    val cli = new StubCliRunner(CliResult(0, "1\n", ""))
+    val cli = scalar("1")
     assertEquals(
       SessionAction.cursorHistory(id, workDir, chats, cli),
       Right(())
@@ -128,10 +128,17 @@ class SessionActionTest extends munit.FunSuite:
       "database fixture",
       createFolders = true
     )
-    val cli = new StubCliRunner(CliResult(0, "0\n", ""))
+    val cli = scalar("0")
     val Left(reason) =
       SessionAction.cursorHistory(id, workDir, chats, cli): @unchecked
     assert(reason.getMessage.contains(workDir.toString))
     assert(reason.getMessage.contains("sqlite3 on PATH"))
     assert(reason.getMessage.contains("rerun Orca"))
     assert(reason.getMessage.contains("re-seed"))
+
+  private def scalar(value: String): SpawnStubCliRunner =
+    val process = new FakePipedCliProcess(initiallyAlive = false)
+    process.enqueueStdout(value)
+    process.closeStdout()
+    process.closeStderr()
+    new SpawnStubCliRunner(List(process))

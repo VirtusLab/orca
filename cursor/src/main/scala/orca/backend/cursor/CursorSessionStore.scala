@@ -1,11 +1,13 @@
 package orca.backend.cursor
 
 import orca.subprocess.CliRunner
+import ox.{discard, fork, supervised, timeoutOption, use}
 
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.Files
 import java.security.MessageDigest
 import java.util.HexFormat
+import scala.concurrent.duration.*
 import scala.util.control.NonFatal
 
 /** Read-only lookup of Cursor's checkout-scoped persisted history. */
@@ -42,7 +44,8 @@ private[orca] object CursorSessionStore:
       workDir: os.Path,
       id: String,
       chatsRoot: os.Path,
-      cli: CliRunner
+      cli: CliRunner,
+      timeout: FiniteDuration = 10.seconds
   ): Boolean =
     database(workDir, id, chatsRoot).exists: path =>
       try
@@ -51,21 +54,41 @@ private[orca] object CursorSessionStore:
         else
           // Immutable mode ignores WAL-only history and never creates a store.
           // EXISTS bounds the result without reading conversation contents.
-          val result = cli.run(
-            Seq(
-              "sqlite3",
-              "-batch",
-              "-noheader",
-              "-readonly",
-              "-init",
-              "/dev/null",
-              path.toNIO.toUri.toASCIIString + "?mode=ro&immutable=1",
-              "SELECT EXISTS (SELECT 1 FROM meta WHERE key = '0') AND EXISTS (SELECT 1 FROM blobs);"
-            ),
-            cwd = workDir
-          )
-          result.exitCode == 0 &&
-          result.stdout.stripSuffix("\n").stripSuffix("\r") == "1"
+          timeoutOption(timeout):
+            supervised:
+              use(
+                cli.spawnPiped(
+                  Seq(
+                    "sqlite3",
+                    "-batch",
+                    "-noheader",
+                    "-readonly",
+                    "-init",
+                    "/dev/null",
+                    path.toNIO.toUri.toASCIIString + "?mode=ro&immutable=1",
+                    "SELECT EXISTS (SELECT 1 FROM meta WHERE key = '0') AND EXISTS (SELECT 1 FROM blobs);"
+                  ),
+                  cwd = workDir
+                ),
+                process =>
+                  process.destroyForciblyTree()
+                  process.waitForExit().discard
+              ): process =>
+                process.closeStdin()
+                val stdout = fork:
+                  var seen = false
+                  var valid = true
+                  for line <- process.stdoutLines do
+                    valid = valid && !seen && line == "1"
+                    seen = true
+                  seen && valid
+                val stderr = fork:
+                  process.stderrLines.foreach(_ => ())
+                val exitCode = process.waitForExit()
+                val scalar = stdout.join()
+                stderr.join()
+                exitCode == 0 && scalar
+          .contains(true)
       catch case NonFatal(_) => false
 
   def missingHistory(workDir: os.Path): String =

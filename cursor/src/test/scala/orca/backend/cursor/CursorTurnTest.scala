@@ -245,3 +245,27 @@ class CursorTurnTest extends munit.FunSuite:
       completedNormally = true
     )
     assert(live.awaitResult().isRight)
+
+  liveTest(
+    "malformed completed-tool result preserves the following tool and usage"
+  ):
+    val process = new FakePipedCliProcess()
+    val live = CursorTurn(process)
+    val completed =
+      """{"type":"tool_call","subtype":"completed","call_id":"c","tool_call":{"shell":{"result":{"is_error":false}}}}"""
+    List(
+      initLine(),
+      """{"type":"tool_call","subtype":"completed","call_id":"bad","tool_call":{"shell":{"result":{"is_error":"bad"}}}}""",
+      completed,
+      """{"type":"result","subtype":"success","usage":{"inputTokens":10,"outputTokens":2}}"""
+    ).foreach(process.enqueueStdout)
+    finish(process)
+    val events = live.events.toList
+    assertEquals(events.count(_.isInstanceOf[TurnEvent.Error]), 1)
+    assert(
+      events.contains(TurnEvent.ToolResult(Some("shell"), true, completed))
+    )
+    TurnEventConformance.assertGrammar(events, completedNormally = true)
+    val result = live.awaitResult().toOption.get
+    assertEquals(result.usage.freshInputTokens, 10L)
+    assertEquals(result.usage.outputTokens, 2L)

@@ -3,10 +3,11 @@ package orca.backend.cursor
 import orca.agents.{AgentConfig, BackendTag, SessionId, WireSessionId, ToolSet}
 import orca.backend.{Dispatch, ResumeOrigin, SupervisedBackend}
 import orca.subprocess.{
-  CliResult,
   FakePipedCliProcess,
   SpawnStubCliRunner,
-  StubCliRunner
+  StubCliRunner,
+  PipedCliProcess,
+  CliRunner
 }
 import orca.testkit.TempDirs
 
@@ -38,15 +39,24 @@ class CursorBackendTest extends munit.FunSuite:
 
   private def withProbe(
       processes: List[FakePipedCliProcess],
-      probe: StubCliRunner
+      probe: CliRunner
   ): SpawnStubCliRunner =
     new SpawnStubCliRunner(processes):
-      override def run(
+      override def spawnPiped(
           args: Seq[String],
-          stdin: String,
           env: Map[String, String],
           cwd: os.Path
-      ): CliResult = probe.run(args, stdin = stdin, env = env, cwd = cwd)
+      ): PipedCliProcess =
+        if args.head == "sqlite3" then
+          probe.spawnPiped(args, env = env, cwd = cwd)
+        else super.spawnPiped(args, env = env, cwd = cwd)
+
+  private def scalar(value: String): SpawnStubCliRunner =
+    val process = new FakePipedCliProcess(initiallyAlive = false)
+    process.enqueueStdout(value)
+    process.closeStdout()
+    process.closeStderr()
+    new SpawnStubCliRunner(List(process))
 
   test("fresh call spawns without resume and uses the configured checkout"):
     val workDir = TempDirs.dir()
@@ -91,7 +101,7 @@ class CursorBackendTest extends munit.FunSuite:
     val workDir = TempDirs.dir()
     val chats = TempDirs.dir()
     history(workDir = workDir, chats = chats)
-    val probe = new StubCliRunner(CliResult(0, "1\n", ""))
+    val probe = scalar("1")
     val cli = withProbe(List(successful(wire)), probe)
     SupervisedBackend.using(
       new CursorBackend(cli, workDir = workDir, chatsRoot = chats)
@@ -108,7 +118,7 @@ class CursorBackendTest extends munit.FunSuite:
       val _ = backend.runAutonomous("continue", id, AgentConfig())
       assert(cli.calls.head.containsSlice(List("--resume", wire)))
       assertEquals(probe.calls.size, 1)
-      assertEquals(probe.calls.head.cwd, workDir)
+      assertEquals(probe.spawnCalls.head.cwd, workDir)
 
   test("stale persisted id re-seeds and commits the newly minted conversation"):
     val cli = new SpawnStubCliRunner(
@@ -149,7 +159,7 @@ class CursorBackendTest extends munit.FunSuite:
     val workDir = TempDirs.dir()
     val chats = TempDirs.dir()
     history(workDir = workDir, chats = chats)
-    val probe = new StubCliRunner(CliResult(0, "0\n", ""))
+    val probe = scalar("0")
     val cli =
       withProbe(List(successful(replacement), successful(replacement)), probe)
     SupervisedBackend.using(
@@ -169,12 +179,11 @@ class CursorBackendTest extends munit.FunSuite:
     val chats = TempDirs.dir()
     history(workDir = workDir, chats = chats)
     val probe = new StubCliRunner():
-      override def run(
+      override def spawnPiped(
           args: Seq[String],
-          stdin: String,
           env: Map[String, String],
           cwd: os.Path
-      ): CliResult =
+      ): PipedCliProcess =
         throw new java.io.IOException("sqlite3 unavailable")
     val cli = withProbe(List(successful(replacement)), probe)
     SupervisedBackend.using(

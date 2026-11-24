@@ -135,6 +135,9 @@ Only a successful scalar `1` verifies history. The check reads no message
 contents and neither invokes Cursor nor creates a store. A missing `sqlite3`,
 missing or unreadable database, corrupt or unsupported schema, or initialized
 store without history makes a durable flow re-seed with its existing seed.
+The probe has a ten-second deadline; expiry kills the probe and finishes its
+readers, treating the history as unverified. Cancelling Orca also stops the
+probe and propagates cancellation.
 Immutable mode ignores WAL files; history available only in an uncheckpointed
 WAL safely re-seeds.
 Confirmed same-attempt conversations continue without another disk probe.

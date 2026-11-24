@@ -1,8 +1,19 @@
 package orca.backend.cursor
 
-import orca.subprocess.{CliResult, StubCliRunner}
+import orca.subprocess.{
+  CliResult,
+  FakePipedCliProcess,
+  OsProcCliRunner,
+  PipedCliProcess,
+  SpawnStubCliRunner,
+  StubCliRunner
+}
+import orca.testkit.ProcessProbe.{alive, awaitDead}
 import orca.testkit.TempDirs
-import ox.discard
+import ox.{discard, forkCancellable, supervised, timeout}
+
+import java.util.concurrent.{CountDownLatch, TimeUnit}
+import scala.concurrent.duration.*
 
 class CursorSessionStoreTest extends munit.FunSuite:
   private val id = "6f0f1234-5678-4abc-9def-000000000001"
@@ -18,9 +29,17 @@ class CursorSessionStoreTest extends munit.FunSuite:
     finally stream.close()
     path
 
-  private def populated: StubCliRunner = new StubCliRunner(
-    CliResult(0, "1\n", "")
-  )
+  private def reply(result: CliResult): FakePipedCliProcess =
+    val process = new FakePipedCliProcess(initiallyAlive = false):
+      override def waitForExit(): Int = result.exitCode
+    result.stdout.linesIterator.foreach(process.enqueueStdout)
+    result.stderr.linesIterator.foreach(process.enqueueStderr)
+    process.closeStdout()
+    process.closeStderr()
+    process
+
+  private def populated: SpawnStubCliRunner =
+    new SpawnStubCliRunner(List(reply(CliResult(0, "1\n", ""))))
 
   test("checkout key is lowercase MD5 of the canonical absolute UTF-8 path"):
     val root = TempDirs.dir()
@@ -61,9 +80,9 @@ class CursorSessionStoreTest extends munit.FunSuite:
     val cli = populated
     assert(CursorSessionStore.resumable(workDir, id, root, cli))
     assertEquals(os.list(path / os.up).map(_.last), Seq("store.db"))
-    val call = cli.calls.head
+    val call = cli.spawnCalls.head
     assertEquals(call.cwd, workDir)
-    assertEquals(call.stdin, "")
+    assertEquals(call.env, Map.empty[String, String])
     assertEquals(
       call.args.take(6),
       List("sqlite3", "-batch", "-noheader", "-readonly", "-init", "/dev/null")
@@ -98,7 +117,7 @@ class CursorSessionStoreTest extends munit.FunSuite:
     val root = TempDirs.dir()
     val workDir = TempDirs.dir()
     val _ = store(workDir, root, "empty")
-    val cli = new StubCliRunner(CliResult(0, "0\n", ""))
+    val cli = new SpawnStubCliRunner(List(reply(CliResult(0, "0\n", ""))))
     assert(!CursorSessionStore.resumable(workDir, id, root, cli))
     assertEquals(cli.calls.size, 1)
 
@@ -106,17 +125,20 @@ class CursorSessionStoreTest extends munit.FunSuite:
     val root = TempDirs.dir()
     val workDir = TempDirs.dir()
     val _ = store(workDir, root, "populated")
-    val cli = populated
     for result <- List(
         // Query failures include corrupt or unsupported databases.
         CliResult(1, "1\n", "failed"),
         CliResult(0, "", ""),
         CliResult(0, "11\n", ""),
         CliResult(0, "1\n1\n", ""),
-        CliResult(0, " 1\n", "")
+        CliResult(0, " 1\n", ""),
+        CliResult(0, "1 \n", ""),
+        CliResult(0, "\n1\n", ""),
+        CliResult(0, "1\n\n", ""),
+        CliResult(0, "1\r\n\r\n", "")
       )
     do
-      cli.setResponse(result)
+      val cli = new SpawnStubCliRunner(List(reply(result)))
       assert(
         !CursorSessionStore.resumable(workDir, id, root, cli),
         result.toString
@@ -127,12 +149,11 @@ class CursorSessionStoreTest extends munit.FunSuite:
     val workDir = TempDirs.dir()
     val _ = store(workDir, root, "populated")
     val cli = new StubCliRunner():
-      override def run(
+      override def spawnPiped(
           args: Seq[String],
-          stdin: String,
           env: Map[String, String],
           cwd: os.Path
-      ): CliResult =
+      ): PipedCliProcess =
         throw new java.io.IOException("sqlite3 unavailable")
     assert(!CursorSessionStore.resumable(workDir, id, root, cli))
 
@@ -179,3 +200,154 @@ class CursorSessionStoreTest extends munit.FunSuite:
     val cli = populated
     assert(!CursorSessionStore.resumable(root / "gone", id, root, cli))
     assertEquals(cli.calls, Nil)
+
+  private class WaitingProcess extends FakePipedCliProcess():
+    val readersStarted: CountDownLatch = new CountDownLatch(2)
+    val readersFinished: CountDownLatch = new CountDownLatch(2)
+    val killed: CountDownLatch = new CountDownLatch(1)
+
+    override def waitForExit(): Int =
+      killed.await()
+      0
+
+    override def destroyForcibly(): Unit =
+      super.destroyForcibly()
+      killed.countDown()
+
+    override def stdoutLines: Iterator[String] = tracked(super.stdoutLines)
+    override def stderrLines: Iterator[String] = tracked(super.stderrLines)
+
+    private def tracked(lines: Iterator[String]): Iterator[String] =
+      new Iterator[String]:
+        def hasNext: Boolean =
+          readersStarted.countDown()
+          try
+            val more = lines.hasNext
+            if !more then readersFinished.countDown()
+            more
+          catch
+            case e: Throwable =>
+              readersFinished.countDown()
+              throw e
+        def next(): String = lines.next()
+
+  private def probe(
+      process: FakePipedCliProcess,
+      limit: FiniteDuration
+  ): Boolean =
+    val workDir = TempDirs.dir()
+    val root = TempDirs.dir()
+    val _ = store(workDir, root, "populated")
+    CursorSessionStore.resumable(
+      workDir,
+      id,
+      root,
+      new SpawnStubCliRunner(List(process)),
+      timeout = limit
+    )
+
+  test("a silent probe reaches its deadline and completes cleanup"):
+    timeout(10.seconds):
+      val process = new WaitingProcess()
+      assert(!probe(process, 500.millis))
+      assert(process.isStdinClosed)
+      assert(!process.isAlive)
+      assertEquals(process.killed.getCount, 0L)
+      assertEquals(process.readersStarted.getCount, 0L)
+      assertEquals(process.readersFinished.getCount, 0L)
+
+  test("parent cancellation propagates after killing and joining the probe"):
+    timeout(10.seconds):
+      supervised:
+        val process = new WaitingProcess()
+        val running = forkCancellable(probe(process, 1.minute))
+        assert(process.readersStarted.await(5, TimeUnit.SECONDS))
+        val result = running.cancel()
+        assert(
+          result.left.toOption.exists(_.isInstanceOf[InterruptedException])
+        )
+        assert(process.isStdinClosed)
+        assert(!process.isAlive)
+        assertEquals(process.readersFinished.getCount, 0L)
+
+  test("the probe closes stdin and drains both streams before returning"):
+    timeout(10.seconds):
+      val process = new WaitingProcess():
+        override def waitForExit(): Int =
+          require(isStdinClosed)
+          require(readersStarted.await(5, TimeUnit.SECONDS))
+          enqueueStdout("1")
+          enqueueStderr("diagnostic")
+          closeStdout()
+          closeStderr()
+          0
+      assert(probe(process, 5.seconds))
+      assertEquals(process.readersFinished.getCount, 0L)
+      assert(!process.isAlive)
+
+  test("stdin close failure still kills the acquired probe"):
+    val process = new WaitingProcess():
+      override def closeStdin(): Unit = throw new java.io.IOException("closed")
+    timeout(10.seconds):
+      assert(!probe(process, 5.seconds))
+    assert(!process.isAlive)
+
+  test("a read failure fails closed and joins the other drain"):
+    timeout(10.seconds):
+      val process = new WaitingProcess():
+        override def stdoutLines: Iterator[String] =
+          readersStarted.countDown()
+          try
+            require(readersStarted.await(5, TimeUnit.SECONDS))
+            throw new java.io.IOException("read failed")
+          finally readersFinished.countDown()
+      assert(!probe(process, 1.minute))
+      assertEquals(process.readersStarted.getCount, 0L)
+      assertEquals(process.readersFinished.getCount, 0L)
+      assert(!process.isAlive)
+
+  test("a local silent executable is killed at the probe deadline"):
+    timeout(10.seconds):
+      val root = TempDirs.dir()
+      val workDir = TempDirs.dir()
+      val _ = store(workDir, root, "populated")
+      val pidFile = root / "pid"
+      val stdinClosed = root / "stdin-closed"
+      val script = root / "sqlite-stub"
+      os.write(
+        script,
+        """#!/bin/sh
+if IFS= read -r line; then exit 7; fi
+echo closed > "$STDIN_CLOSED"
+echo $$ > "$PIDFILE"
+exec sleep 30
+"""
+      )
+      os.perms.set(script, "rwx------")
+      val cli = new StubCliRunner():
+        override def spawnPiped(
+            args: Seq[String],
+            env: Map[String, String],
+            cwd: os.Path
+        ): PipedCliProcess =
+          OsProcCliRunner.spawnPiped(
+            script.toString +: args.tail,
+            env = env ++ Map(
+              "PIDFILE" -> pidFile.toString,
+              "STDIN_CLOSED" -> stdinClosed.toString
+            ),
+            cwd = cwd
+          )
+      assert(
+        !CursorSessionStore.resumable(
+          workDir,
+          id,
+          root,
+          cli,
+          timeout = 2.seconds
+        )
+      )
+      assert(os.exists(stdinClosed))
+      val pid = os.read(pidFile).trim.toLong
+      assert(awaitDead(pid))
+      assert(!alive(pid))

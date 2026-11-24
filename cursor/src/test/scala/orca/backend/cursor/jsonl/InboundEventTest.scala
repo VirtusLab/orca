@@ -90,3 +90,74 @@ class InboundEventTest extends munit.FunSuite:
       ),
       InboundEvent.Unknown("tool_call/future")
     )
+
+  for (fields, ok) <- List(
+      "" -> true,
+      "\"error\":null" -> true,
+      "\"error\":false" -> false,
+      "\"error\":{}" -> false,
+      "\"error\":\"failed\"" -> false,
+      "\"is_error\":null" -> true,
+      "\"is_error\":false" -> true,
+      "\"error\":null,\"is_error\":false" -> true,
+      "\"error\":null,\"is_error\":true" -> false,
+      "\"error\":{},\"is_error\":false" -> false,
+      "\"error\":{},\"is_error\":true" -> false
+    )
+  do
+    test(s"completed tool status preserves $fields"):
+      val line =
+        s"""{"type":"tool_call","subtype":"completed","call_id":"c","tool_call":{"shell":{"result":{$fields}}}}"""
+      assertEquals(
+        InboundEvent.parse(line),
+        InboundEvent.ToolCompleted(Some("shell"), ok, line)
+      )
+
+  for result <- List("", ",\"result\":null") do
+    test(s"completed tool tolerates absent or null result: $result"):
+      val line =
+        s"""{"type":"tool_call","subtype":"completed","call_id":"c","tool_call":{"shell":{"args":{}$result}}}"""
+      assertEquals(
+        InboundEvent.parse(line),
+        InboundEvent.ToolCompleted(Some("shell"), true, line)
+      )
+
+  test("unknown result outcomes and heterogeneous metadata are ignored"):
+    val line =
+      """{ "type":"tool_call", "subtype":"completed", "call_id":"c", "metadata":[null,42], "tool_call":{"shell":{"args":[1],"metadata":false,"result":{"success":{"output":"ok"},"future":[false,42],"metadata":"v2","is_error":false}}} }"""
+    assertEquals(
+      InboundEvent.parse(line),
+      InboundEvent.ToolCompleted(Some("shell"), true, line)
+    )
+
+  test("unselected heterogeneous tool entries are not decoded as results"):
+    val line =
+      """{"type":"tool_call","subtype":"completed","call_id":"c","tool_call":{"shell":{"result":{"is_error":true}},"future":42}}"""
+    assertEquals(
+      InboundEvent.parse(line),
+      InboundEvent.ToolCompleted(Some("shell"), false, line)
+    )
+
+  for payload <- List(
+      "42",
+      "null",
+      "[]",
+      "{\"result\":42}",
+      "{\"result\":{\"is_error\":\"future\"}}"
+    )
+  do
+    test(
+      s"started tool preserves raw payload without decoding its result: $payload"
+    ):
+      val line =
+        s"""{ "type":"tool_call", "subtype":"started", "call_id":"c", "tool_call":{"shell":$payload} }"""
+      assertEquals(
+        InboundEvent.parse(line),
+        InboundEvent.ToolStarted("shell", line)
+      )
+
+  test("unknown event type bypasses heterogeneous tool payloads"):
+    assertEquals(
+      InboundEvent.parse("""{"type":"future","tool_call":42,"result":false}"""),
+      InboundEvent.Unknown("future")
+    )

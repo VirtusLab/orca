@@ -119,8 +119,7 @@ private[cursor] object InboundEvent:
         else
           val failed = tool.exists: (_, payload) =>
             val result = readFromString[ToolPayloadWire](payload.value).result
-            result.exists: raw =>
-              val status = readFromString[ToolResultWire](raw.value)
+            result.exists: status =>
               status.error.isDefined || status.is_error.contains(true)
           ToolCompleted(name, !failed, line)
       case other => Unknown(s"tool_call/${other.raw}")
@@ -158,7 +157,7 @@ private[cursor] object InboundEvent:
       call_id: String,
       tool_call: Option[Map[String, RawJson]] = None
   ) derives ConfiguredJsonValueCodec
-  private case class ToolPayloadWire(result: Option[RawJson] = None)
+  private case class ToolPayloadWire(result: Option[ToolResultWire] = None)
       derives ConfiguredJsonValueCodec
   private case class ToolResultWire(
       error: Option[RawJson] = None,
