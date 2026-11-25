@@ -8,7 +8,8 @@ import orca.agents.{
   CodexAgent,
   GeminiAgent,
   OpencodeAgent,
-  PiAgent
+  PiAgent,
+  CursorAgent
 }
 import orca.review.ReviewerCatalog
 import orca.tools.FsTool
@@ -41,6 +42,7 @@ class TestFlowContext(
   lazy val opencode: OpencodeAgent = stub("opencode")
   lazy val pi: PiAgent = stub("pi")
   lazy val gemini: GeminiAgent = stub("gemini")
+  lazy val cursor: CursorAgent = stub("cursor")
   private[orca] lazy val runtimeGit: RuntimeGit =
     wiredGit.getOrElse(stub("git"))
   lazy val gh: GitHubTool = wiredGh.getOrElse(stub("gh"))

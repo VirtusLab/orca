@@ -50,6 +50,7 @@ object EffortSupport:
       case BackendTag.Opencode   => Some(opencode)
       case BackendTag.Pi         => Some(pi)
       case BackendTag.Gemini     => None
+      case BackendTag.Cursor     => None
 
   private val lowToMax: Map[Effort, String] = Map(
     Effort.Low -> "low",

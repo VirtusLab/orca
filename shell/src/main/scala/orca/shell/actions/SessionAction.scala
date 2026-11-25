@@ -2,11 +2,17 @@ package orca.shell.actions
 
 import org.jline.terminal.Terminal
 import orca.shell.run.ChildTerminal
-import orca.shell.sessions.{ResumeCommand, SessionNaming, SessionSelection}
+import orca.shell.sessions.{
+  CursorHistoryFailure,
+  ResumeCommand,
+  SessionNaming,
+  SessionSelection
+}
 import orca.shell.ui.ShellOutput
-import orca.subprocess.QuietProc
+import orca.subprocess.{CliRunner, OsProcCliRunner, QuietProc}
 import orca.backend.gemini.GeminiSessionList
 import orca.backend.pi.PiSessionStore
+import orca.backend.cursor.CursorSessionStore
 
 import java.time.Instant
 import scala.util.Try
@@ -84,26 +90,39 @@ private[shell] object SessionAction:
               "checkout path, or never written"
           )
 
+  private[shell] def cursorHistory(
+      wireId: String,
+      workDir: os.Path,
+      cli: CliRunner = OsProcCliRunner,
+      env: String => Option[String] = sys.env.get
+  ): Either[CursorHistoryFailure, Unit] =
+    val chatsRoot = CursorSessionStore.configuredChatsRoot(workDir, env)
+    Either.cond(
+      CursorSessionStore.resumable(workDir, wireId, chatsRoot, cli),
+      (),
+      new CursorHistoryFailure(CursorSessionStore.missingHistory(workDir))
+    )
+
   // The id just failed the safe-charset check, so it's arbitrary bytes from an
   // editable file — never interpolated into terminal output raw.
   private def displayable(raw: String): String =
     raw.filterNot(_.isControl).take(80)
 
-  /** Hands [[ResumeCommand.build]] the two live lookups — gemini's index (its
+  /** Hands [[ResumeCommand.build]] the harness lookups — gemini's index (its
     * [[GeminiSessionList]] from the attempt's `workDir`, matched against the
-    * wire id) and pi's [[piSessionDir]] — each invoked only by its own
-    * harness's branch, then execs the resume command as a tty-inherited child
-    * under [[ChildTerminal.withChild]] (ADR 0021 §2) from that same `workDir` —
-    * which may differ from the shell's own cwd (claude/gemini/opencode scope
-    * session lookup by cwd; pi's transcripts live under it). A failed or
-    * missing `gemini` binary is treated the same as "index not found":
-    * [[ResumeCommand.build]] reports it as not resumable. [[validatedWorkDir]]
-    * guards the attempt's `workDir` up front, and both lookups run under it;
-    * the exec itself is further wrapped in a `NonFatal` backstop (e.g. the
-    * checkout vanishing in the gap between that check and this exec, or the
-    * resume binary itself being missing). Left carries the final "can't
-    * resume"/"resume failed" message without ever spawning a process on the
-    * former; Right carries the resumed child's exit code.
+    * wire id), pi's [[piSessionDir]] and Cursor's local history check — each
+    * invoked only by its own harness's branch, then execs the resume command as
+    * a tty-inherited child under [[ChildTerminal.withChild]] (ADR 0021 §2) from
+    * that same `workDir` — which may differ from the shell's own cwd
+    * (claude/gemini/opencode scope session lookup by cwd; pi's transcripts live
+    * under it). A failed or missing `gemini` binary is treated the same as
+    * "index not found": [[ResumeCommand.build]] reports it as not resumable.
+    * [[validatedWorkDir]] guards the attempt's `workDir` up front, and the
+    * lookups run under it; the exec itself is further wrapped in a `NonFatal`
+    * backstop (e.g. the checkout vanishing in the gap between that check and
+    * this exec, or the resume binary itself being missing). Left carries the
+    * final "can't resume"/"resume failed" message without ever spawning a
+    * process on the former; Right carries the resumed child's exit code.
     */
   def resume(
       terminal: Terminal,
@@ -120,9 +139,10 @@ private[shell] object SessionAction:
         ResumeCommand.build(
           selection.session,
           geminiIndex = geminiIndex,
-          piSessionDir = piSessionDir(_, workDir)
+          piSessionDir = piSessionDir(_, workDir),
+          cursorHistory = cursorHistory(_, workDir)
         ) match
-          case Left(reason) => Left(s"can't resume — $reason")
+          case Left(reason) => Left(s"can't resume — ${reason.getMessage}")
           case Right(argv) =>
             try
               val exitCode = ChildTerminal.withChild(terminal):

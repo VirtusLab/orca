@@ -23,6 +23,12 @@ class AgentSpecTest extends FunSuite:
       Right(AgentSpec(BackendTag.Gemini, Some("gemini-2.5-pro")))
     )
 
+  test("parse accepts cursor harness with a model pin"):
+    assertEquals(
+      AgentSpec.parse("cursor:composer-2.5"),
+      Right(AgentSpec(BackendTag.Cursor, Some("composer-2.5")))
+    )
+
   test("parse of the empty string is a Left"):
     assert(AgentSpec.parse("").isLeft)
 

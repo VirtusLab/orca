@@ -5,6 +5,8 @@ import orca.shell.sessions.{AttemptRecord, RecordedSession}
 import orca.shell.sessions.EventLogFixtures.{attemptRecord, durable, selection}
 import orca.testkit.TempDirs
 import orca.backend.pi.PiSessionStore
+import orca.backend.cursor.CursorSessionStore
+import orca.subprocess.{FakePipedCliProcess, SpawnStubCliRunner}
 
 class SessionActionTest extends munit.FunSuite:
 
@@ -94,3 +96,64 @@ class SessionActionTest extends munit.FunSuite:
       SessionAction.validatedWorkDir(dir.toString),
       Left(s"the recorded working directory $dir no longer exists")
     )
+
+  test(
+    "Cursor history in CURSOR_CONFIG_DIR matches the recorded checkout only"
+  ):
+    val workDir = TempDirs.dir()
+    val profile = TempDirs.dir()
+    val chats = profile / "chats"
+    val env = Map("CURSOR_CONFIG_DIR" -> profile.toString)
+    val id = "6f0f1234-5678-4abc-9def-000000000001"
+    os.write(
+      CursorSessionStore.database(workDir, id, chats).get,
+      "{}\n",
+      createFolders = true
+    )
+    val cli = scalar("1")
+    assertEquals(
+      SessionAction.cursorHistory(id, workDir, cli = cli, env = env.get),
+      Right(())
+    )
+    val elsewhere = TempDirs.dir()
+    val Left(reason) = SessionAction.cursorHistory(
+      id,
+      elsewhere,
+      cli = cli,
+      env = env.get
+    ): @unchecked
+    assert(reason.getMessage.contains(elsewhere.toString))
+    assert(reason.getMessage.contains("rerun Orca"))
+
+  test(
+    "Cursor interactive continuation refuses an unverified store with recovery instructions"
+  ):
+    val workDir = TempDirs.dir()
+    val profile = TempDirs.dir()
+    val chats = profile / "chats"
+    val env = Map("CURSOR_CONFIG_DIR" -> profile.toString)
+    val id = "6f0f1234-5678-4abc-9def-000000000001"
+    os.write(
+      CursorSessionStore.database(workDir, id, chats).get,
+      "database fixture",
+      createFolders = true
+    )
+    val cli = scalar("0")
+    val Left(reason) =
+      SessionAction.cursorHistory(
+        id,
+        workDir,
+        cli = cli,
+        env = env.get
+      ): @unchecked
+    assert(reason.getMessage.contains(workDir.toString))
+    assert(reason.getMessage.contains("sqlite3 on PATH"))
+    assert(reason.getMessage.contains("rerun Orca"))
+    assert(reason.getMessage.contains("re-seed"))
+
+  private def scalar(value: String): SpawnStubCliRunner =
+    val process = new FakePipedCliProcess(initiallyAlive = false)
+    process.enqueueStdout(value)
+    process.closeStdout()
+    process.closeStderr()
+    new SpawnStubCliRunner(List(process))

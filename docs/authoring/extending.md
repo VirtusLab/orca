@@ -15,7 +15,7 @@ flow(
   workDir?, interaction?, extraListeners?,
   branchNaming?, stackSettings?,
   planningAgent?, codingAgent?, reviewAgent?,
-  claude?, codex?, opencode?, pi?, gemini?,
+  claude?, codex?, opencode?, pi?, gemini?, cursor?,
   gh?, fs?, prompts?, pricing?
 )(body)
 ```
@@ -42,7 +42,7 @@ The parameters are:
 - `planningAgent`, `codingAgent`, `reviewAgent`: per-role agent overrides, for
   example `Some(_.claude.opus)`. They take precedence over the project and
   global [settings](../using/settings.md).
-- `claude`, `codex`, `opencode`, `pi`, `gemini`: agent factories, see
+- `claude`, `codex`, `opencode`, `pi`, `gemini`, `cursor`: agent factories, see
   [Replacing an agent](#replacing-an-agent) below.
 - `gh`, `fs`: your own tool implementations, for example `gh = Some(myGh)`.
 - `prompts`: the per-call prompt wrappers (autonomous, interactive, retry), as
@@ -60,10 +60,10 @@ example:
 flow(OrcaArgs(args), claude = Some(w => ClaudeAgents.default(w).opus))
 ```
 
-Factories exist for all five harnesses: `ClaudeAgents.default(w)`,
-`CodexAgents.default(w)`, `GeminiAgents.default(w)`, `PiAgents.default(w)` and
-`OpencodeAgents.default(w, launcher)`. The accessors they offer are listed in
-[Backends](../api/backends.md). Each slot has the type
+Factories for the supported [backends](../api/backends.md) are
+`ClaudeAgents.default(w)`, `CodexAgents.default(w)`, `GeminiAgents.default(w)`,
+`PiAgents.default(w)`, `CursorAgents.default(w)` and
+`OpencodeAgents.default(w, launcher)`. Each slot has the type
 `AgentWiring => Ox ?=> <Harness>Agent`. The factory runs inside the run's
 [Ox](https://ox.softwaremill.com/) scope, so a harness can tie a long-lived
 process to it; OpenCode uses this for its shared `opencode serve`.

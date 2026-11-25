@@ -18,9 +18,14 @@ class ResumeCommandTest extends munit.FunSuite:
       s: RecordedSession,
       geminiIndex: String => Option[Int] = _ => fail("gemini lookup invoked"),
       piSessionDir: String => Either[String, os.Path] = _ =>
-        fail("pi lookup invoked")
+        fail("pi lookup invoked"),
+      cursorHistory: String => Either[CursorHistoryFailure, Unit] = _ =>
+        fail("Cursor lookup invoked")
   ): Either[String, Seq[String]] =
-    ResumeCommand.build(s, geminiIndex, piSessionDir)
+    ResumeCommand
+      .build(s, geminiIndex, piSessionDir, cursorHistory)
+      .left
+      .map(_.getMessage)
 
   test("claude resumes via `claude --resume <uuid>`"):
     val uuid = "6f0f1234-5678-4abc-9def-000000000001"
@@ -99,3 +104,42 @@ class ResumeCommandTest extends munit.FunSuite:
       ResumeCommand.staticGate(session(BackendTag.ClaudeCode, Some("uuid"))),
       Right("uuid")
     )
+
+  test("Cursor reopens verified history interactively without print mode"):
+    val uuid = "6f0f1234-5678-4abc-9def-000000000001"
+    assertEquals(
+      build(
+        session(BackendTag.Cursor, Some(uuid)),
+        cursorHistory = id =>
+          assertEquals(id, uuid)
+          Right(())
+      ),
+      Right(Seq("cursor-agent", s"--resume=$uuid"))
+    )
+
+  test("Cursor refuses missing history with the checkout-specific reason"):
+    val reason = "no Cursor history in /checkout; rerun Orca there"
+    assertEquals(
+      build(
+        session(
+          BackendTag.Cursor,
+          Some("6f0f1234-5678-4abc-9def-000000000001")
+        ),
+        cursorHistory = _ => Left(new CursorHistoryFailure(reason))
+      ),
+      Left(reason)
+    )
+
+  test("Cursor history failure stays typed until the shell boundary"):
+    val failure = new CursorHistoryFailure("missing Cursor history; rerun Orca")
+    val result = ResumeCommand.build(
+      session(BackendTag.Cursor, Some("6f0f1234-5678-4abc-9def-000000000001")),
+      geminiIndex = _ => fail("gemini lookup invoked"),
+      piSessionDir = _ => fail("pi lookup invoked"),
+      cursorHistory = _ => Left(failure)
+    )
+    assertEquals(result, Left(failure))
+
+  test("Cursor rejects a malformed UUID before looking up history"):
+    for id <- List("", "-x", "../../elsewhere", "safe-but-not-uuid", "abc\n") do
+      assert(build(session(BackendTag.Cursor, Some(id))).isLeft)

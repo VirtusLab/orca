@@ -3,7 +3,7 @@ package orca.backend
 import orca.AgentTurnFailed
 import orca.agents.{BackendTag, WireSessionId}
 import orca.events.{TurnDebit, Usage}
-import orca.subprocess.{OsProcCliRunner, PipedCliProcess}
+import orca.subprocess.{FakePipedCliProcess, OsProcCliRunner, PipedCliProcess}
 import orca.testkit.ProcessProbe.{alive, awaitDead}
 
 import ox.{Ox, supervised, timeout}
@@ -20,7 +20,7 @@ class DecodedTurnTeardownTest extends munit.FunSuite:
     * the process's output through the [[LiveTurn]] surface (the reader fork
     * owns the pipe, so nothing else may read it), and settles on `done`.
     */
-  private object LineEchoing
+  private class LineEchoing
       extends LineDecoder[BackendTag.ClaudeCode.type, Unit]:
     def backendName: String = "fake"
     def terminalMessageNoun: String = "a settle"
@@ -40,9 +40,10 @@ class DecodedTurnTeardownTest extends munit.FunSuite:
         )
       else Step.continue((), TurnEvent.AssistantTextDelta(line))
 
-  private def echo(process: PipedCliProcess)(using
-      Ox
-  ): LiveTurn[BackendTag.ClaudeCode.type] =
+  private def echo(
+      process: PipedCliProcess,
+      decoder: LineEchoing = new LineEchoing
+  )(using Ox): LiveTurn[BackendTag.ClaudeCode.type] =
     DecodedTurn.start(
       StreamSource.fromProcess(process),
       DecodedTurnSpec(
@@ -50,8 +51,59 @@ class DecodedTurnTeardownTest extends munit.FunSuite:
         outputSchema = None,
         askUser = AskUserChannel.Unavailable
       ),
-      LineEchoing
+      decoder
     )
+
+  test("the default decoder surfaces stderr emitted by the shutdown signal"):
+    supervised:
+      val process = new FakePipedCliProcess():
+        override def sendSigInt(): Unit =
+          enqueueStderr("Aborting operation...")
+          super.sendSigInt()
+      val live = echo(process)
+      process.enqueueStdout("done")
+      val events = live.events.toList
+      assertEquals(events, List(TurnEvent.Error("fake: Aborting operation...")))
+      TurnEventConformance.assertGrammar(events, completedNormally = true)
+      assert(live.awaitResult().isRight)
+
+  test("cancel stops the source even when the caller is interrupted"):
+    supervised:
+      val process = new FakePipedCliProcess()
+      try
+        val live = echo(process)
+        Thread.currentThread().interrupt()
+        try live.cancel()
+        catch case _: InterruptedException => ()
+        finally
+          val _ = Thread.interrupted()
+        assert(!process.isAlive)
+        assertEquals(process.sigIntCount, 1)
+      finally process.destroyForciblyTree()
+
+  test("settle stops the source when its shutdown notification is interrupted"):
+    supervised:
+      val process = new FakePipedCliProcess()
+      val decoder = new LineEchoing:
+        override def line(
+            state: Unit,
+            line: String
+        ): Step[BackendTag.ClaudeCode.type, Unit] =
+          val step = super.line(state, line)
+          Thread.currentThread().interrupt()
+          step
+      try
+        val live = echo(process, decoder)
+        process.enqueueStdout("done")
+        try
+          val _ = timeout(10.seconds)(live.awaitResult())
+          fail("expected the reader's shutdown notification to be interrupted")
+        catch case _: InterruptedException => ()
+        finally
+          val _ = Thread.interrupted()
+        assert(!process.isAlive)
+        assertEquals(process.sigIntCount, 1)
+      finally process.destroyForciblyTree()
 
   /** Runs `script` as the agent, whose first stdout line is a descendant's PID,
     * and hands `check` the turn and that PID.

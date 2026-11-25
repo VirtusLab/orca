@@ -16,13 +16,14 @@ structured concurrency, [tapir](https://tapir.softwaremill.com/) for JSON
 Schema derivation and
 [jsoniter-scala](https://github.com/plokhotnyuk/jsoniter-scala) for codecs.
 
-The repository is organised into these modules:
+The repository has one module per [backend](api/backends.md), alongside the
+shared runtime and shell:
 
 ```
 orca/
 ├── tools/      # tool traits + os-lib-backed impls (git/gh/fs), LLM SPI, session durability, events
 ├── flow/       # stage/display/fail, FlowContext/FlowControl; orca.{plan,review,pr,progress}
-├── claude/ codex/ gemini/ opencode/ pi/   # one module per coding-agent backend
+├── claude/ codex/ gemini/ opencode/ pi/ cursor/   # one module per coding-agent backend
 ├── runner/     # flow() entry, default wiring, the run lifecycle, terminal UI
 ├── shell/      # orca-shell: the `orca` CLI
 ├── flows/      # the built-in flow scripts, bundled into the shell
@@ -35,8 +36,8 @@ The modules depend on each other as follows:
 tools   (standalone)
   ├── flow                          → tools
   ├── claude / codex / gemini /
-  │     opencode / pi               → tools
-  ├── runner                        → tools + flow + all five backends   (published as `orca`)
+  │     opencode / pi / cursor      → tools
+  ├── runner                        → tools + flow + all backend modules   (published as `orca`)
   └── shell                         → runner                             (published as `orca-shell`)
 ```
 

@@ -9,7 +9,8 @@ import orca.agents.{
   GeminiAgent,
   Model,
   OpencodeAgent,
-  PiAgent
+  PiAgent,
+  CursorAgent
 }
 import orca.review.ReviewerPrompts
 import orca.settings.{AgentSettings, AgentSpec}
@@ -59,6 +60,23 @@ class RoleAgentsTest extends munit.FunSuite:
     val roles = resolvedRoles(settings, wired)
     assert(roles.planning.sharesBackendWith(wired.claude))
     assertEquals(roles.planning.config.model, Some(Model("claude-opus-x")))
+
+  test(
+    "Cursor settings route every role to the wired backend with its model pin"
+  ):
+    val wired = wiredAgents()
+    val spec = AgentSpec.parse("cursor:composer-2.5").toOption.get
+    val roles = resolvedRoles(
+      AgentSettings(
+        planning = Some(spec),
+        coding = Some(spec),
+        review = Some(spec)
+      ),
+      wired
+    )
+    for role <- List(roles.planning, roles.coding, roles.review) do
+      assert(role.sharesBackendWith(wired.cursor))
+      assertEquals(role.config.model, Some(Model("composer-2.5")))
 
   test("opencode's model pin keeps the raw provider/model string"):
     val wired = wiredAgents()
@@ -331,6 +349,7 @@ class RoleAgentsTest extends munit.FunSuite:
       codex: CodexAgent = stub(BackendTag.Codex),
       opencode: OpencodeAgent = stub(BackendTag.Opencode),
       pi: PiAgent = stub(BackendTag.Pi),
-      gemini: GeminiAgent = stub(BackendTag.Gemini)
+      gemini: GeminiAgent = stub(BackendTag.Gemini),
+      cursor: CursorAgent = stub(BackendTag.Cursor)
   ): WiredAgents =
-    new WiredAgents(claude, codex, opencode, pi, gemini)
+    new WiredAgents(claude, codex, opencode, pi, gemini, cursor)

@@ -14,10 +14,10 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
   * Persisted in the run's event log, and emitted, as its case name.
   */
 enum BackendTag:
-  case ClaudeCode, Codex, Opencode, Pi, Gemini
+  case ClaudeCode, Codex, Opencode, Pi, Gemini, Cursor
 
-  /** The harness's name in settings and messages, which is also its CLI binary:
-    * `claude`, `codex`, ….
+  /** The harness's name in settings and messages: `claude`, `codex`, `cursor`,
+    * ….
     */
   private[orca] def harnessName: String = this match
     case ClaudeCode => "claude"
@@ -25,6 +25,14 @@ enum BackendTag:
     case Opencode   => "opencode"
     case Pi         => "pi"
     case Gemini     => "gemini"
+    case Cursor     => "cursor"
+
+  /** The CLI binary orca spawns. Usually the same as [[harnessName]]; `cursor`
+    * is the settings id, `cursor-agent` the installed binary.
+    */
+  private[orca] def cliBinary: String = this match
+    case Cursor => "cursor-agent"
+    case other  => other.harnessName
 
 object BackendTag:
   given codec: ConfiguredJsonValueCodec[BackendTag] =

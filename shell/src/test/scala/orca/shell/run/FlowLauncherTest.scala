@@ -119,11 +119,24 @@ class FlowLauncherTest extends munit.FunSuite:
       )
     )
 
-  test("compileArgv passes the same flow source as argv"):
-    // scala-cli rebuilds when a --java-prop value changes.
+  test("compileArgv uses only compile options for a forced snapshot"):
+    val version = "0.0.18+5-abc"
     val compile =
-      FlowLauncher.compileArgv(flow, OrcaBuild.Release("0.0.18"), workspaceDir)
-    assert(compile.containsSlice(Seq("--java-prop", sourceProp)), compile)
+      FlowLauncher.compileArgv(flow, OrcaBuild.Snapshot(version), workspaceDir)
+    assertEquals(
+      compile,
+      Seq(
+        "scala-cli",
+        "compile",
+        flow.path.toString,
+        "--dep",
+        s"org.virtuslab::orca:$version",
+        "--repository",
+        "ivy2Local",
+        "--workspace",
+        workspaceDir.toString
+      )
+    )
 
   test("resolveNextAction: a zero exit is Succeed, without the compile probe"):
     val probeCalls = new java.util.concurrent.atomic.AtomicInteger(0)

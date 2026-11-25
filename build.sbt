@@ -149,6 +149,13 @@ lazy val gemini = (project in file("gemini"))
     libraryDependencies ++= Seq(osLib, jsoniter, jsoniterMacros)
   )
 
+lazy val cursor = (project in file("cursor"))
+  .dependsOn(tools, tools % "test->test")
+  .settings(
+    name := "orca-cursor",
+    libraryDependencies ++= Seq(osLib, jsoniter, jsoniterMacros)
+  )
+
 lazy val flow = (project in file("flow"))
   .dependsOn(tools, tools % "test->test")
   .settings(
@@ -173,7 +180,8 @@ lazy val runner = (project in file("runner"))
     codex,
     opencode,
     pi,
-    gemini
+    gemini,
+    cursor
   )
   .settings(
     // Published as just "orca" so flow-script coordinates stay short.
@@ -357,4 +365,15 @@ lazy val orcaRoot = rootProject
         )
     }
   )
-  .aggregate(tools, flow, claude, codex, opencode, pi, gemini, runner, shell)
+  .aggregate(
+    tools,
+    flow,
+    claude,
+    codex,
+    opencode,
+    pi,
+    gemini,
+    cursor,
+    runner,
+    shell
+  )

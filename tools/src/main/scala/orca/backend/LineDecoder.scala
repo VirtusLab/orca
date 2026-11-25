@@ -42,10 +42,19 @@ private[backend] trait LineDecoder[B <: BackendTag, S]:
     */
   def onUnsettledEnd(): Unit = ()
 
+  /** Enrich a subprocess diagnostic with backend-specific recovery guidance. */
+  def stderrDiagnostic(line: String): String = line
+
   /** Known-benign stderr lines, dropped instead of surfacing as an `Error`.
     * Sees the line stripped of terminal control sequences and trimmed.
     */
   def isStderrNoise(line: String): Boolean = false
+
+  /** Benign stderr after Orca requests shutdown. Intent is published before
+    * interrupting the source; sees the same normalized diagnostics as
+    * [[isStderrNoise]].
+    */
+  def isShutdownStderrNoise(line: String): Boolean = false
 
 /** The result of decoding one line. */
 private[backend] enum Step[B <: BackendTag, S]:

@@ -70,10 +70,7 @@ private[shell] object FlowLauncher:
   private def depArgs(forced: Option[OrcaBuild]): Seq[String] =
     forced.toSeq.flatMap(_.forceArgs)
 
-  /** Tells the flow child its [[FlowSource]] ([[FlowSourceProperty]]). On the
-    * compile probe too, since scala-cli rebuilds when a `--java-prop` value
-    * changes.
-    */
+  /** Tells the flow child its [[FlowSource]] ([[FlowSourceProperty]]). */
   private def flowSourceArgs(source: FlowSource): Seq[String] =
     Seq("--java-prop", FlowSourceProperty.assignment(source))
 
@@ -111,6 +108,7 @@ private[shell] object FlowLauncher:
   /** The compile probe's argv — same `--workspace` treatment as [[argv]], and
     * for the same reason: without it, the probe (run whenever the forced
     * version fails) would write its own `.scala-build` next to `flow` too.
+    * Scala CLI's compile command rejects the run-only `--java-prop` option.
     */
   private[run] def compileArgv(
       flow: LaunchedFlow,
@@ -121,8 +119,7 @@ private[shell] object FlowLauncher:
       "scala-cli",
       "compile",
       flow.path.toString
-    ) ++ forced.forceArgs ++ flowSourceArgs(flow.source) ++
-      Seq("--workspace", workspaceDir.toString)
+    ) ++ forced.forceArgs ++ Seq("--workspace", workspaceDir.toString)
 
   /** What to do once the forced run has finished. */
   enum NextAction:

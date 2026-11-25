@@ -15,7 +15,7 @@ import ox.{
   forkUnsupervised,
   pipe
 }
-import ox.channels.{Channel, ChannelClosed}
+import ox.channels.{Actor, ActorRef, Channel, ChannelClosed}
 
 import java.util.concurrent.atomic.AtomicBoolean
 import scala.util.control.NonFatal
@@ -52,18 +52,31 @@ private[backend] object DecodedTurn:
       channel.sendOrClosed(event).discard
     spec.openingPrompt.foreach(p => neutral(TurnEvent.UserMessage(p)))
     val cancelled = new AtomicBoolean(false)
-    val stderr = fork(drainStderr(source, decoder, neutral))
+    val lifecycle = Actor.create(new StderrLifecycle)
+    val stderr = fork(
+      drainStderr(source, decoder, cancelled, lifecycle, neutral)
+    )
     spec.askUser match
       case AskUserChannel.Mcp(session) =>
         forkDiscard(drainQuestions(session.bridge, neutral))
       case AskUserChannel.Unavailable | AskUserChannel.Native => ()
     val reader = forkUnsupervised(
-      Reader(source, decoder, channel, cancelled, stderr).run()
+      Reader(source, decoder, channel, cancelled, lifecycle, stderr).run()
     )
     Live(spec, source, channel, cancelled, reader)
 
   private type Outcome[B <: BackendTag] =
     Either[OrcaInteractiveCancelled | AgentTurnFailed, AgentResult[B]]
+
+  private final class StderrLifecycle:
+    // Actor-owned intent serializes shutdown with stderr classification. A
+    // method-local flag cannot span forks; an AtomicReference over an immutable
+    // value would still expose shared lifecycle state outside the actor.
+    private var shutdownRequested = false
+
+    def requestShutdown(): Unit = shutdownRequested = true
+
+    def isShutdownRequested: Boolean = shutdownRequested
 
   private final class Live[B <: BackendTag](
       spec: DecodedTurnSpec,
@@ -124,6 +137,7 @@ private[backend] object DecodedTurn:
       decoder: LineDecoder[B, S],
       channel: Channel[TurnEvent],
       cancelled: AtomicBoolean,
+      lifecycle: ActorRef[StderrLifecycle],
       stderr: Fork[StderrLog]
   )(using Ox):
     private val name = decoder.backendName
@@ -215,14 +229,16 @@ private[backend] object DecodedTurn:
       * only traced.
       */
     private def stopSource(): Unit =
-      source.interrupt()
-      forkDiscard:
-        try
-          source.awaitStopped()
-          source.destroyForcibly()
-        catch
-          case NonFatal(e) =>
-            OrcaDebug.traceStream(name, "teardown-error", e.toString)
+      try lifecycle.ask(_.requestShutdown())
+      finally
+        source.interrupt()
+        forkDiscard:
+          try
+            source.awaitStopped()
+            source.destroyForcibly()
+          catch
+            case NonFatal(e) =>
+              OrcaDebug.traceStream(name, "teardown-error", e.toString)
 
     private def outcome(
         progress: Progress[B, S],
@@ -276,14 +292,22 @@ private[backend] object DecodedTurn:
   private def drainStderr(
       source: StreamSource,
       decoder: LineDecoder[?, ?],
+      cancelled: AtomicBoolean,
+      lifecycle: ActorRef[StderrLifecycle],
       neutral: NeutralEvent => Unit
   ): StderrLog =
+    def isNoise(line: String): Boolean =
+      decoder.isStderrNoise(line) ||
+        (decoder.isShutdownStderrNoise(line) &&
+          (cancelled.get() || lifecycle.ask(_.isShutdownRequested)))
     var log = StderrLog.empty
     try
       for raw <- source.errorLines do
         OrcaDebug.traceStream(decoder.backendName, "stderr", raw)
-        val line = TerminalControl.stripControlSequences(raw).trim
-        if log.surfaces(line, decoder.isStderrNoise) then
+        val line = decoder.stderrDiagnostic(
+          TerminalControl.stripControlSequences(raw).trim
+        )
+        if log.surfaces(line, isNoise) then
           neutral(TurnEvent.Error(s"${decoder.backendName}: $line"))
           log = log.add(line)
     catch

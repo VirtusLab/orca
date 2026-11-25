@@ -25,8 +25,16 @@ for any reason, it can be continued from the last commit.
 You can use Orca to orchestrate development in any language and ecosystem.
 
 Orca assumes that it has configured, logged-in access to Claude, Codex,
-OpenCode, Pi or Gemini (depending which backend you use), as well as `gh` and
+OpenCode, Pi, Gemini or Cursor Agent (depending which backend you use), as well as `gh` and
 `git`.
+
+For Cursor, install and authenticate `cursor-agent`, then select
+`codingAgent = cursor:composer-2.5` in settings or use `cursor.composer` in a
+flow. Cursor has prompt-enforced structured output and no Orca `ask_user`
+bridge. Restricted turns retain `--plan`; tool restrictions are prompt-only.
+A fresh checkout or worktree may need explicit interactive workspace trust:
+run `cursor-agent` in that exact checkout, accept trust there, then rerun Orca.
+See [Cursor CLI behavior](docs/using/agent-clis.md#cursor-agent).
 
 > [!NOTE] 
 > Orca is designed to be run as part of a single-developer workflow. For a

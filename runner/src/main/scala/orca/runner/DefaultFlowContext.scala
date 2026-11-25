@@ -35,6 +35,6 @@ private[orca] class DefaultFlowContext(
     val reviewerCatalog: ReviewerCatalog
 ) extends FlowContext:
 
-  export wired.{claude, codex, opencode, pi, gemini}
+  export wired.{claude, codex, opencode, pi, gemini, cursor}
 
   private[orca] def emit(event: OrcaEvent): Unit = dispatcher.onEvent(event)

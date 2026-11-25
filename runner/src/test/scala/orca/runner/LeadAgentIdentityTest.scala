@@ -11,7 +11,8 @@ import orca.agents.{
   CodexAgent,
   GeminiAgent,
   OpencodeAgent,
-  PiAgent
+  PiAgent,
+  CursorAgent
 }
 import orca.backend.{AgentResult, TurnRequest}
 import orca.events.{OrcaEvent, OrcaListener}
@@ -160,7 +161,8 @@ class LeadAgentIdentityTest extends munit.FunSuite:
               codex = Some(_ => agents.codex),
               opencode = Some(_ => agents.opencode),
               pi = Some(_ => agents.pi),
-              gemini = Some(_ => agents.gemini)
+              gemini = Some(_ => agents.gemini),
+              cursor = Some(_ => agents.cursor)
             )
           )
         ):
@@ -181,7 +183,8 @@ class LeadAgentIdentityTest extends munit.FunSuite:
         BackendTag.Codex,
         BackendTag.Opencode,
         BackendTag.Pi,
-        BackendTag.Gemini
+        BackendTag.Gemini,
+        BackendTag.Cursor
       )
     do
       assert(
@@ -219,7 +222,8 @@ class LeadAgentIdentityTest extends munit.FunSuite:
               codex = Some(_ => agents.codex),
               opencode = Some(_ => agents.opencode),
               pi = Some(_ => agents.pi),
-              gemini = Some(_ => agents.gemini)
+              gemini = Some(_ => agents.gemini),
+              cursor = Some(_ => agents.cursor)
             )
           )
         ):
@@ -252,12 +256,14 @@ class LeadAgentIdentityTest extends munit.FunSuite:
     private val opencodeBackend = ScriptedBackend.unused(BackendTag.Opencode)
     private val piBackend = ScriptedBackend.unused(BackendTag.Pi)
     private val geminiBackend = ScriptedBackend.unused(BackendTag.Gemini)
+    private val cursorBackend = ScriptedBackend.unused(BackendTag.Cursor)
 
     val claude: ClaudeAgent = TestAgent(claudeBackend)
     val codex: CodexAgent = TestAgent(codexBackend)
     val opencode: OpencodeAgent = TestAgent(opencodeBackend)
     val pi: PiAgent = TestAgent(piBackend)
     val gemini: GeminiAgent = TestAgent(geminiBackend)
+    val cursor: CursorAgent = TestAgent(cursorBackend)
 
     def closed(tag: BackendTag): Boolean = tag match
       case BackendTag.ClaudeCode => claudeBackend.isClosed
@@ -265,6 +271,7 @@ class LeadAgentIdentityTest extends munit.FunSuite:
       case BackendTag.Opencode   => opencodeBackend.isClosed
       case BackendTag.Pi         => piBackend.isClosed
       case BackendTag.Gemini     => geminiBackend.isClosed
+      case BackendTag.Cursor     => cursorBackend.isClosed
 
   private class RecordingListener extends OrcaListener:
     private val seen = new AtomicReference[List[OrcaEvent]](Nil)
