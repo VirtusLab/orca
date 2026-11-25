@@ -8,11 +8,27 @@ import java.nio.file.Files
 import java.security.MessageDigest
 import java.util.HexFormat
 import scala.concurrent.duration.*
+import scala.util.Try
 import scala.util.control.NonFatal
 
 /** Read-only lookup of Cursor's checkout-scoped persisted history. */
 private[orca] object CursorSessionStore:
-  def defaultChatsRoot: os.Path = os.home / ".cursor" / "chats"
+  def configuredChatsRoot(
+      workDir: os.Path,
+      env: String => Option[String] = sys.env.get,
+      home: os.Path = os.home
+  ): os.Path =
+    // Cursor resolves relative profile paths from the launched process's cwd.
+    lazy val cwd = Try(workDir.toNIO.toRealPath()).getOrElse(workDir.toNIO)
+    def configuredPath(key: String): Option[os.Path] =
+      env(key)
+        .filter(_.trim.nonEmpty)
+        .map: path =>
+          os.Path(cwd.resolve(path).normalize())
+    val configDir = configuredPath("CURSOR_CONFIG_DIR")
+      .orElse(configuredPath("XDG_CONFIG_HOME").map(_ / "cursor"))
+      .getOrElse(home / ".cursor")
+    configDir / "chats"
 
   def validId(id: String): Boolean =
     id.matches(

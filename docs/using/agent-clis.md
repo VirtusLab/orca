@@ -115,8 +115,13 @@ Cursor mints the session UUID. To recover across attempts, Orca uses optional
 `sqlite3` on PATH to verify persisted history in Cursor's chat database:
 
 ```text
-~/.cursor/chats/<checkout-path-md5>/<UUID>/store.db
+<cursor-config-dir>/chats/<checkout-path-md5>/<UUID>/store.db
 ```
+
+Orca uses `CURSOR_CONFIG_DIR` when set to a nonblank value, then
+`$XDG_CONFIG_HOME/cursor`, then `~/.cursor`. Relative paths resolve from the
+recorded checkout. Use the same profile when retrying a flow or running
+`orca continue`.
 
 The checkout is resolved to its canonical absolute path through symlinks
 (including macOS `/var` to `/private/var`). The directory key is the lowercase

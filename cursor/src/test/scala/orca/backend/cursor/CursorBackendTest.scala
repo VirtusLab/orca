@@ -97,14 +97,18 @@ class CursorBackendTest extends munit.FunSuite:
       val _ = backend.runAutonomous("continue", id, AgentConfig())
       assert(cli.calls(1).containsSlice(List("--resume", wire)))
 
-  test("restored history resumes in the original checkout"):
+  test(
+    "restored history in CURSOR_CONFIG_DIR resumes in the original checkout"
+  ):
     val workDir = TempDirs.dir()
-    val chats = TempDirs.dir()
+    val profile = TempDirs.dir()
+    val chats = profile / "chats"
+    val env = Map("CURSOR_CONFIG_DIR" -> profile.toString)
     history(workDir = workDir, chats = chats)
     val probe = scalar("1")
     val cli = withProbe(List(successful(wire)), probe)
     SupervisedBackend.using(
-      new CursorBackend(cli, workDir = workDir, chatsRoot = chats)
+      CursorBackend.create(cli, workDir = workDir, env = env.get)
     ): backend =>
       val id = client
       backend.sessions.rehydrate(id, WireSessionId(wire))

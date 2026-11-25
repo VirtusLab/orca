@@ -18,8 +18,8 @@ import ox.Ox
 /** Cursor backend via `cursor-agent -p --output-format stream-json`. */
 private[orca] class CursorBackend(
     cli: CliRunner,
-    override val workDir: os.Path = os.pwd,
-    chatsRoot: os.Path = CursorSessionStore.defaultChatsRoot
+    override val workDir: os.Path,
+    chatsRoot: os.Path
 ) extends AgentBackend[BackendTag.Cursor.type]:
 
   val tag: BackendTag.Cursor.type = BackendTag.Cursor
@@ -61,5 +61,13 @@ private[orca] class CursorBackend(
     }
 
 private[orca] object CursorBackend:
-  private[orca] def create(cli: CliRunner, workDir: os.Path): CursorBackend =
-    new CursorBackend(cli, workDir = workDir)
+  private[orca] def create(
+      cli: CliRunner,
+      workDir: os.Path,
+      env: String => Option[String] = sys.env.get
+  ): CursorBackend =
+    new CursorBackend(
+      cli,
+      workDir = workDir,
+      chatsRoot = CursorSessionStore.configuredChatsRoot(workDir, env)
+    )

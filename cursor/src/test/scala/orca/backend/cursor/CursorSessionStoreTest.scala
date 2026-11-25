@@ -41,6 +41,50 @@ class CursorSessionStoreTest extends munit.FunSuite:
   private def populated: SpawnStubCliRunner =
     new SpawnStubCliRunner(List(reply(CliResult(0, "1\n", ""))))
 
+  test("CURSOR_CONFIG_DIR takes precedence over XDG_CONFIG_HOME"):
+    val workDir = TempDirs.dir()
+    val profile = workDir / "cursor profile"
+    val env = Map(
+      "CURSOR_CONFIG_DIR" -> profile.toString,
+      "XDG_CONFIG_HOME" -> (workDir / "xdg").toString
+    )
+    assertEquals(
+      CursorSessionStore.configuredChatsRoot(workDir, env.get),
+      profile / "chats"
+    )
+
+  test(
+    "XDG_CONFIG_HOME selects its cursor subdirectory for blank Cursor config"
+  ):
+    val workDir = TempDirs.dir()
+    val xdg = workDir / "xdg"
+    val env =
+      Map("CURSOR_CONFIG_DIR" -> " \t", "XDG_CONFIG_HOME" -> xdg.toString)
+    assertEquals(
+      CursorSessionStore.configuredChatsRoot(workDir, env.get),
+      xdg / "cursor" / "chats"
+    )
+
+  test("without profile overrides Cursor uses the home config directory"):
+    val home = TempDirs.dir()
+    assertEquals(
+      CursorSessionStore.configuredChatsRoot(os.root, _ => None, home),
+      home / ".cursor" / "chats"
+    )
+
+  test("a relative Cursor profile path resolves from the physical checkout"):
+    val root = TempDirs.dir()
+    val workDir = root / "physical" / "checkout"
+    os.makeDir.all(workDir)
+    val alias = root / "alias"
+    os.symlink(alias, workDir)
+    val env = Map("CURSOR_CONFIG_DIR" -> "../profile ")
+    val checkout = os.Path(workDir.toNIO.toRealPath())
+    assertEquals(
+      CursorSessionStore.configuredChatsRoot(alias, env.get),
+      checkout / os.up / "profile " / "chats"
+    )
+
   test("checkout key is lowercase MD5 of the canonical absolute UTF-8 path"):
     val root = TempDirs.dir()
     // Independent MD5 vector for a canonical directory that exists on every host.

@@ -93,9 +93,10 @@ private[shell] object SessionAction:
   private[shell] def cursorHistory(
       wireId: String,
       workDir: os.Path,
-      chatsRoot: os.Path = CursorSessionStore.defaultChatsRoot,
-      cli: CliRunner = OsProcCliRunner
+      cli: CliRunner = OsProcCliRunner,
+      env: String => Option[String] = sys.env.get
   ): Either[CursorHistoryFailure, Unit] =
+    val chatsRoot = CursorSessionStore.configuredChatsRoot(workDir, env)
     Either.cond(
       CursorSessionStore.resumable(workDir, wireId, chatsRoot, cli),
       (),
