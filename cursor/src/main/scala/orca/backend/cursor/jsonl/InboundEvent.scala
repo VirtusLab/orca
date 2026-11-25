@@ -110,7 +110,7 @@ private[cursor] object InboundEvent:
     subtype match
       case Subtype.Started | Subtype.Completed =>
         val w = readFromString[ToolWire](line)
-        val tool = w.tool_call.flatMap(_.headOption)
+        val tool = w.tool_call.flatMap(selectTool)
         val name = tool.map(_._1).filter(_.nonEmpty)
         if subtype == Subtype.Started then
           name.fold[InboundEvent](Unknown("tool_call/started"))(name =>
@@ -123,6 +123,32 @@ private[cursor] object InboundEvent:
               status.error.isDefined || status.is_error.contains(true)
           ToolCompleted(name, !failed, line)
       case other => Unknown(s"tool_call/${other.raw}")
+
+  private val ToolMetadataFields: Set[String] = Set(
+    "hookAdditionalContexts",
+    "toolCallId",
+    "startedAtMs",
+    "completedAtMs"
+  )
+
+  private def selectTool(
+      members: Map[String, RawJson]
+  ): Option[(String, RawJson)] =
+    val payloads = members.filterNot: (name, _) =>
+      name.isEmpty || ToolMetadataFields.contains(name)
+    val namedTools = payloads.filter((name, _) => name.endsWith("ToolCall"))
+    val candidates =
+      if namedTools.nonEmpty then namedTools
+      else if payloads.size == 1 then payloads
+      else
+        payloads.filter((_, payload) =>
+          payload.value.stripLeading().startsWith("{")
+        )
+    if candidates.size > 1 then
+      throw new IllegalArgumentException(
+        s"Ambiguous Cursor tool_call members: ${candidates.keys.toList.sorted.mkString(", ")}"
+      )
+    candidates.headOption
 
   private def parseResult(line: String, subtype: Subtype): InboundEvent =
     val w = readFromString[ResultWire](line)

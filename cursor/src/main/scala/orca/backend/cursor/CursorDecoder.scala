@@ -91,6 +91,9 @@ private[cursor] final class CursorDecoder(workDir: os.Path)
   override def stderrDiagnostic(line: String): String =
     CursorWorkspaceTrust.explain(line, workDir)
 
+  override def isShutdownStderrNoise(line: String): Boolean =
+    line == "Aborting operation..."
+
   override def protocolContext(state: State): Option[String] = state.error
 
   def failedTurnDebit(state: State): TurnDebit = TurnDebit.Unobserved

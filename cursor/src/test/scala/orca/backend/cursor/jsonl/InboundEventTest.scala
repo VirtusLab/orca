@@ -83,6 +83,93 @@ class InboundEventTest extends munit.FunSuite:
       )
     )
 
+  for (completed, index) <- CursorToolFixtures.completed.zipWithIndex do
+    test(s"captured completion selects editToolCall in order ${index + 1}"):
+      assertEquals(
+        InboundEvent.parse(completed),
+        InboundEvent.ToolCompleted(Some("editToolCall"), true, completed)
+      )
+
+    test(s"captured start selects editToolCall in order ${index + 1}"):
+      val started = completed.replace("\"completed\"", "\"started\"")
+      assertEquals(
+        InboundEvent.parse(started),
+        InboundEvent.ToolStarted("editToolCall", started)
+      )
+
+  test("metadata-bearing completion preserves a defined false error"):
+    val line =
+      """{"type":"tool_call","subtype":"completed","call_id":"c","tool_call":{"hookAdditionalContexts":[],"toolCallId":"c","startedAtMs":"1","completedAtMs":"2","editToolCall":{"result":{"error":false}}}}"""
+    assertEquals(
+      InboundEvent.parse(line),
+      InboundEvent.ToolCompleted(Some("editToolCall"), false, line)
+    )
+
+  for
+    subtype <- List("started", "completed")
+    members <- List(
+      """"readToolCall":42,"editToolCall":[]""",
+      """"editToolCall":[],"readToolCall":42""",
+      """"editToolCall":{"result":{}},"readToolCall":{"result":{}}""",
+      """"shell":{"result":{}},"read":{"result":{}}""",
+      """"read":{"result":{}},"shell":{"result":{}}"""
+    )
+  do
+    test(s"$subtype rejects ambiguous tool members: $members"):
+      val line =
+        s"""{"type":"tool_call","subtype":"$subtype","call_id":"c","tool_call":{$members}}"""
+      val error = intercept[IllegalArgumentException](InboundEvent.parse(line))
+      assert(error.getMessage.contains("Ambiguous Cursor tool_call members"))
+
+  for metadata <- List(
+      "\"hookAdditionalContexts\":{}",
+      "\"toolCallId\":\"c\"",
+      "\"startedAtMs\":\"1\"",
+      "\"completedAtMs\":\"2\"",
+      """"hookAdditionalContexts":[],"toolCallId":"c","startedAtMs":"1","completedAtMs":"2""""
+    )
+  do
+    test(s"metadata-only start has no tool name: $metadata"):
+      val line =
+        s"""{"type":"tool_call","subtype":"started","call_id":"c","tool_call":{$metadata}}"""
+      assertEquals(
+        InboundEvent.parse(line),
+        InboundEvent.Unknown("tool_call/started")
+      )
+
+    test(s"metadata-only completion has no tool name: $metadata"):
+      val line =
+        s"""{"type":"tool_call","subtype":"completed","call_id":"c","tool_call":{$metadata}}"""
+      assertEquals(
+        InboundEvent.parse(line),
+        InboundEvent.ToolCompleted(None, true, line)
+      )
+
+  for subtype <- List("started", "completed") do
+    test(s"$subtype still requires call_id"):
+      val line =
+        s"""{"type":"tool_call","subtype":"$subtype","tool_call":{"editToolCall":{}}}"""
+      intercept[com.github.plokhotnyuk.jsoniter_scala.core.JsonReaderException](
+        InboundEvent.parse(line)
+      )
+
+  for toolCall <- List("", ",\"tool_call\":null", ",\"tool_call\":{}") do
+    test(s"start without tool members is unknown: $toolCall"):
+      val line =
+        s"""{"type":"tool_call","subtype":"started","call_id":"c"$toolCall}"""
+      assertEquals(
+        InboundEvent.parse(line),
+        InboundEvent.Unknown("tool_call/started")
+      )
+
+    test(s"completion without tool members has no name: $toolCall"):
+      val line =
+        s"""{"type":"tool_call","subtype":"completed","call_id":"c"$toolCall}"""
+      assertEquals(
+        InboundEvent.parse(line),
+        InboundEvent.ToolCompleted(None, true, line)
+      )
+
   test("unknown tool subtype ignores a payload with a different schema"):
     assertEquals(
       InboundEvent.parse(
@@ -138,6 +225,14 @@ class InboundEventTest extends munit.FunSuite:
       InboundEvent.ToolCompleted(Some("shell"), false, line)
     )
 
+  test("named tool ignores unrelated objects with incompatible result shapes"):
+    val line =
+      """{"type":"tool_call","subtype":"completed","call_id":"c","tool_call":{"future":{"result":42},"editToolCall":{"result":{"success":{}}},"hookAdditionalContexts":{"result":false}}}"""
+    assertEquals(
+      InboundEvent.parse(line),
+      InboundEvent.ToolCompleted(Some("editToolCall"), true, line)
+    )
+
   for payload <- List(
       "42",
       "null",
@@ -156,8 +251,26 @@ class InboundEventTest extends munit.FunSuite:
         InboundEvent.ToolStarted("shell", line)
       )
 
+  for payload <- List("42", "null", "[]", "{\"result\":42}") do
+    test(s"metadata-bearing start preserves unchecked payload: $payload"):
+      val line =
+        s"""{ "type":"tool_call", "subtype":"started", "call_id":"c", "tool_call":{"hookAdditionalContexts":[],"editToolCall":$payload,"startedAtMs":"1"} }"""
+      assertEquals(
+        InboundEvent.parse(line),
+        InboundEvent.ToolStarted("editToolCall", line)
+      )
+
   test("unknown event type bypasses heterogeneous tool payloads"):
     assertEquals(
       InboundEvent.parse("""{"type":"future","tool_call":42,"result":false}"""),
       InboundEvent.Unknown("future")
     )
+
+private[cursor] object CursorToolFixtures:
+  val completed: List[String] = List(
+    """{"type":"tool_call","subtype":"completed","call_id":"c1","tool_call":{"editToolCall":{"args":{"path":"probe.txt"},"result":{"success":{}}},"hookAdditionalContexts":[],"toolCallId":"c1","startedAtMs":"c1","completedAtMs":"c1"}}""",
+    """{"type":"tool_call","subtype":"completed","call_id":"c1","tool_call":{"hookAdditionalContexts":[],"toolCallId":"c1","startedAtMs":"c1","completedAtMs":"c1","editToolCall":{"args":{"path":"probe.txt"},"result":{"success":{}}}}}""",
+    """{"type":"tool_call","subtype":"completed","call_id":"c1","tool_call":{"toolCallId":"c1","startedAtMs":"c1","completedAtMs":"c1","editToolCall":{"args":{"path":"probe.txt"},"result":{"success":{}}},"hookAdditionalContexts":[]}}""",
+    """{"type":"tool_call","subtype":"completed","call_id":"c1","tool_call":{"startedAtMs":"c1","completedAtMs":"c1","editToolCall":{"args":{"path":"probe.txt"},"result":{"success":{}}},"hookAdditionalContexts":[],"toolCallId":"c1"}}""",
+    """{"type":"tool_call","subtype":"completed","call_id":"c1","tool_call":{"completedAtMs":"c1","editToolCall":{"args":{"path":"probe.txt"},"result":{"success":{}}},"hookAdditionalContexts":[],"toolCallId":"c1","startedAtMs":"c1"}}"""
+  )

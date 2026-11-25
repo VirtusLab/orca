@@ -6,8 +6,12 @@ import orca.events.TurnDebit
 import orca.testkit.TempDirs
 import orca.backend.TurnEvent
 import orca.backend.TurnEventConformance
+import orca.backend.cursor.jsonl.CursorToolFixtures
 import orca.subprocess.FakePipedCliProcess
-import ox.{Ox, supervised}
+import ox.{Ox, supervised, timeout}
+
+import java.util.concurrent.{CountDownLatch, TimeUnit}
+import scala.concurrent.duration.*
 
 class CursorTurnTest extends munit.FunSuite:
 
@@ -29,6 +33,148 @@ class CursorTurnTest extends munit.FunSuite:
       output: Long = 3L
   ): String =
     s"""{"type":"result","subtype":"success","is_error":false,"result":"$text","usage":{"inputTokens":$input,"outputTokens":$output,"cacheReadTokens":0,"cacheWriteTokens":0}}"""
+
+  private def signalStderrProcess(
+      diagnostics: String*
+  ): FakePipedCliProcess =
+    val consumed = new CountDownLatch(1)
+    new FakePipedCliProcess():
+      override def sendSigInt(): Unit =
+        diagnostics.foreach(enqueueStderr)
+        enqueueStderr("")
+        try
+          assert(
+            consumed.await(10, TimeUnit.SECONDS),
+            "stderr must be consumed before sendSigInt returns"
+          )
+        finally super.sendSigInt()
+
+      override def stderrLines: Iterator[String] =
+        super.stderrLines.map: line =>
+          // Reading this marker follows classification of the diagnostics.
+          if line.isEmpty then consumed.countDown()
+          line
+
+  for diagnostic <- List(
+      "Aborting operation...",
+      " \u001b[33mAborting operation...\u001b[0m "
+    )
+  do
+    liveTest(s"successful settle suppresses its signal response: $diagnostic"):
+      val process = signalStderrProcess(diagnostic)
+      val live = CursorTurn(process)
+      List(initLine(), assistantLine("answer"), resultLine(input = 17L))
+        .foreach(process.enqueueStdout)
+      val events = live.events.toList
+      assertEquals(
+        events,
+        List(
+          TurnEvent.AssistantTextDelta("answer"),
+          TurnEvent.AssistantMessageEnd
+        )
+      )
+      TurnEventConformance.assertGrammar(events, completedNormally = true)
+      val result = live.awaitResult().toOption.get
+      assertEquals(result.output, "answer")
+      assertEquals(result.usage.freshInputTokens, 17L)
+      assertEquals(process.sigIntCount, 1)
+
+  liveTest("failed settle excludes its signal response from failure context"):
+    val process = signalStderrProcess("Aborting operation...")
+    val live = CursorTurn(process)
+    process.enqueueStdout(
+      """{"type":"result","subtype":"error","result":"provider failed"}"""
+    )
+    val events = live.events.toList
+    assertEquals(events, Nil)
+    TurnEventConformance.assertGrammar(events, completedNormally = true)
+    val error = intercept[AgentTurnFailed](live.awaitResult())
+    assert(error.getMessage.contains("provider failed"))
+    assert(!error.getMessage.contains("Aborting operation..."))
+
+  liveTest("unsolicited abort diagnostic is visible before any signal"):
+    val process = signalStderrProcess("Aborting operation...")
+    val live = CursorTurn(process)
+    process.enqueueStderr("Aborting operation...")
+    val diagnostic = timeout(10.seconds)(live.events.next())
+    assertEquals(diagnostic, TurnEvent.Error("cursor: Aborting operation..."))
+    assertEquals(process.sigIntCount, 0)
+    process.enqueueStdout(
+      """{"type":"result","subtype":"error","result":"provider failed"}"""
+    )
+    val events = diagnostic :: live.events.toList
+    assertEquals(events, List(diagnostic))
+    TurnEventConformance.assertGrammar(events, completedNormally = true)
+    val error = intercept[AgentTurnFailed](live.awaitResult())
+    assert(error.getMessage.contains("Aborting operation..."))
+
+  liveTest(
+    "unrelated post-signal stderr remains in events and failure context"
+  ):
+    val process = signalStderrProcess(
+      "Aborting operation...",
+      "session persistence failed"
+    )
+    val live = CursorTurn(process)
+    process.enqueueStdout(
+      """{"type":"result","subtype":"error","result":"provider failed"}"""
+    )
+    val events = live.events.toList
+    assertEquals(
+      events,
+      List(TurnEvent.Error("cursor: session persistence failed"))
+    )
+    TurnEventConformance.assertGrammar(events, completedNormally = true)
+    val error = intercept[AgentTurnFailed](live.awaitResult())
+    assert(error.getMessage.contains("provider failed"))
+    assert(error.getMessage.contains("session persistence failed"))
+    assert(!error.getMessage.contains("Aborting operation..."))
+
+  for diagnostic <- List(
+      "Aborting operation... details",
+      "aborting operation..."
+    )
+  do
+    liveTest(
+      s"post-signal suppression requires an exact diagnostic: $diagnostic"
+    ):
+      val process = signalStderrProcess(diagnostic)
+      val live = CursorTurn(process)
+      List(initLine(), resultLine()).foreach(process.enqueueStdout)
+      val events = live.events.toList
+      assertEquals(events, List(TurnEvent.Error(s"cursor: $diagnostic")))
+      TurnEventConformance.assertGrammar(events, completedNormally = true)
+      assert(live.awaitResult().isRight)
+
+  liveTest("cancellation suppresses its synchronous abort response"):
+    val process = signalStderrProcess("Aborting operation...")
+    val live = CursorTurn(process)
+    live.cancel()
+    val events = live.events.toList
+    assertEquals(events, Nil)
+    TurnEventConformance.assertGrammar(events, completedNormally = false)
+    val Left(cancelled) = live.awaitResult(): @unchecked
+    assertEquals(cancelled.debit, TurnDebit.Unobserved)
+    assertEquals(process.sigIntCount, 1)
+
+  liveTest("one turn's shutdown does not suppress another turn's diagnostic"):
+    val firstProcess = signalStderrProcess("Aborting operation...")
+    val first = CursorTurn(firstProcess)
+    val secondProcess = new FakePipedCliProcess()
+    val second = CursorTurn(secondProcess)
+    List(initLine(), resultLine()).foreach(firstProcess.enqueueStdout)
+    val firstEvents = first.events.toList
+    TurnEventConformance.assertGrammar(firstEvents, completedNormally = true)
+    assert(first.awaitResult().isRight)
+    secondProcess.enqueueStderr("Aborting operation...")
+    val diagnostic = timeout(10.seconds)(second.events.next())
+    assertEquals(diagnostic, TurnEvent.Error("cursor: Aborting operation..."))
+    assertEquals(secondProcess.sigIntCount, 0)
+    List(initLine(), resultLine()).foreach(secondProcess.enqueueStdout)
+    val secondEvents = diagnostic :: second.events.toList
+    assertEquals(secondEvents, List(diagnostic))
+    TurnEventConformance.assertGrammar(secondEvents, completedNormally = true)
+    assert(second.awaitResult().isRight)
 
   liveTest("accumulates assistant text and settles on result"):
     val process = new FakePipedCliProcess()
@@ -108,6 +254,28 @@ class CursorTurnTest extends munit.FunSuite:
     )
     TurnEventConformance.assertGrammar(events, completedNormally = true)
     assert(live.awaitResult().isRight)
+
+  liveTest(
+    "captured tool completion preserves its name, payload and following usage"
+  ):
+    val process = new FakePipedCliProcess()
+    val live = CursorTurn(process)
+    val completed = CursorToolFixtures.completed.head
+    List(initLine(), completed, resultLine(input = 17L, output = 4L))
+      .foreach(process.enqueueStdout)
+    finish(process)
+    val events = live.events.toList
+    assertEquals(
+      events,
+      List(
+        TurnEvent.ToolResult(Some("editToolCall"), true, completed),
+        TurnEvent.AssistantMessageEnd
+      )
+    )
+    TurnEventConformance.assertGrammar(events, completedNormally = true)
+    val result = live.awaitResult().toOption.get
+    assertEquals(result.usage.freshInputTokens, 17L)
+    assertEquals(result.usage.outputTokens, 4L)
 
   liveTest(
     "malformed and unknown lines preserve subsequent message boundaries"

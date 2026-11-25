@@ -50,6 +50,12 @@ private[backend] trait LineDecoder[B <: BackendTag, S]:
     */
   def isStderrNoise(line: String): Boolean = false
 
+  /** Benign stderr after Orca requests shutdown. Intent is published before
+    * interrupting the source; sees the same normalized diagnostics as
+    * [[isStderrNoise]].
+    */
+  def isShutdownStderrNoise(line: String): Boolean = false
+
 /** The result of decoding one line. */
 private[backend] enum Step[B <: BackendTag, S]:
   case Continue(state: S, events: List[TurnEvent])

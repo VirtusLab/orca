@@ -3,7 +3,7 @@ package orca.backend
 import orca.AgentTurnFailed
 import orca.agents.{BackendTag, WireSessionId}
 import orca.events.{TurnDebit, Usage}
-import orca.subprocess.{OsProcCliRunner, PipedCliProcess}
+import orca.subprocess.{FakePipedCliProcess, OsProcCliRunner, PipedCliProcess}
 import orca.testkit.ProcessProbe.{alive, awaitDead}
 
 import ox.{Ox, supervised, timeout}
@@ -52,6 +52,33 @@ class DecodedTurnTeardownTest extends munit.FunSuite:
       ),
       LineEchoing
     )
+
+  test("the default decoder surfaces stderr emitted by the shutdown signal"):
+    supervised:
+      val process = new FakePipedCliProcess():
+        override def sendSigInt(): Unit =
+          enqueueStderr("Aborting operation...")
+          super.sendSigInt()
+      val live = echo(process)
+      process.enqueueStdout("done")
+      val events = live.events.toList
+      assertEquals(events, List(TurnEvent.Error("fake: Aborting operation...")))
+      TurnEventConformance.assertGrammar(events, completedNormally = true)
+      assert(live.awaitResult().isRight)
+
+  test("cancel stops the source even when the caller is interrupted"):
+    supervised:
+      val process = new FakePipedCliProcess()
+      try
+        val live = echo(process)
+        Thread.currentThread().interrupt()
+        try live.cancel()
+        catch case _: InterruptedException => ()
+        finally
+          val _ = Thread.interrupted()
+        assert(!process.isAlive)
+        assertEquals(process.sigIntCount, 1)
+      finally process.destroyForciblyTree()
 
   /** Runs `script` as the agent, whose first stdout line is a descendant's PID,
     * and hands `check` the turn and that PID.
